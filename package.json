@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/zono-NISHI/medi-watch#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.107.0",
     "express": "^5.2.1"
   }
 }
