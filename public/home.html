@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2" />
+<title>今日のお薬 - 電子お薬手帳</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#2C4A52" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/home.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="topbar-icon" aria-hidden="true">薬</div>
+      <div>
+        <div class="topbar-title">今日のお薬</div>
+        <div class="text-sm text-muted" id="today-label"></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="notif-toggle-btn" title="通知設定" aria-label="通知設定">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      </button>
+    </header>
+
+    <section id="role-banner"></section>
+
+    <section id="schedule-list" class="stack" aria-live="polite">
+      <p class="text-muted">読み込み中…</p>
+    </section>
+  </main>
+
+  <!-- 服薬モーダル: 音声案内 + カメラ撮影 -->
+  <dialog id="take-modal" class="take-modal">
+    <div class="take-modal-inner">
+      <button class="modal-close" id="modal-close-btn" aria-label="閉じる">×</button>
+      <h2 id="take-modal-title">お薬の時間です</h2>
+      <p class="text-muted" id="take-modal-sub"></p>
+
+      <div class="camera-frame">
+        <video id="camera-preview" autoplay playsinline muted></video>
+        <div class="camera-placeholder" id="camera-placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          <p>カメラを起動して、服薬の様子を記録します</p>
+        </div>
+        <div class="record-indicator" id="record-indicator" hidden>● 記録中</div>
+      </div>
+
+      <div class="stack stack--tight" id="take-modal-actions">
+        <button class="btn btn-accent" id="start-camera-btn">カメラを起動する</button>
+        <button class="btn btn-success" id="finish-take-btn" hidden>飲みました（記録する）</button>
+        <button class="btn btn-outline" id="take-without-video-btn">映像なしで「飲んだ」を記録</button>
+        <button class="btn btn-ghost" id="skip-btn">今回はスキップする</button>
+      </div>
+      <p class="text-sm text-muted" id="upload-status" aria-live="polite"></p>
+    </div>
+  </dialog>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/pages/home.js"></script>
+</body>
+</html>

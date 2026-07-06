@@ -1,0 +1,13 @@
+/* ============================================================
+   マイページ専用スタイル
+   ============================================================ */
+
+#profile-card { margin-bottom: var(--space-3); }
+
+#logout-btn {
+  color: var(--color-clay);
+  border-color: var(--color-clay);
+}
+#logout-btn:hover {
+  background: rgba(181, 84, 74, 0.06);
+}
