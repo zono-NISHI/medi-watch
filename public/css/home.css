@@ -1,0 +1,121 @@
+/* ============================================================
+   ホーム画面（今日のお薬）専用スタイル
+   ============================================================ */
+
+.icon-btn {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--color-line);
+  background: var(--color-white);
+  color: var(--color-indigo);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.icon-btn svg { width: 24px; height: 24px; }
+
+#role-banner .card { margin-bottom: var(--space-3); }
+
+.schedule-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-3);
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.schedule-card.is-taken { opacity: 0.7; }
+.schedule-card.is-overdue { border-color: var(--color-clay); background: #fdf4f2; }
+
+.schedule-time {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--fs-lg);
+  color: var(--color-indigo-deep);
+  min-width: 4.6rem;
+  text-align: center;
+}
+
+.schedule-main { flex: 1; min-width: 0; }
+.schedule-main h3 { margin-bottom: 0.2rem; font-size: var(--fs-base); }
+.schedule-meta { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
+.schedule-action .btn { width: auto; padding: 0.75rem 1.25rem; }
+
+.empty-state {
+  text-align: center;
+  padding: var(--space-5) var(--space-3);
+  color: var(--color-ink-soft);
+}
+.empty-state svg { width: 64px; height: 64px; margin-bottom: var(--space-2); opacity: 0.5; }
+
+/* ---- 服薬モーダル ---- */
+.take-modal {
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 0;
+  width: min(92vw, 520px);
+  box-shadow: var(--shadow-raised);
+}
+.take-modal::backdrop {
+  background: rgba(29, 51, 56, 0.55);
+}
+
+.take-modal-inner {
+  padding: var(--space-4);
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-paper-warm);
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: var(--color-ink-soft);
+}
+
+.camera-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: var(--color-indigo-deep);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin: var(--space-3) 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#camera-preview {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: none;
+}
+
+.camera-placeholder {
+  color: rgba(255,255,255,0.85);
+  text-align: center;
+  padding: var(--space-3);
+}
+.camera-placeholder svg { width: 48px; height: 48px; margin: 0 auto var(--space-2); }
+.camera-placeholder p { font-size: var(--fs-sm); margin: 0; }
+
+.record-indicator {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  background: rgba(181, 84, 74, 0.9);
+  color: white;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
