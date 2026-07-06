@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>電子お薬手帳</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <style>
+    /* ─────────────────────────────────────────
+       CSS変数・リセット
+    ───────────────────────────────────────── */
+    :root {
+      --primary:       #2563C8;
+      --primary-dark:  #1a4fa0;
+      --primary-light: #E6F1FB;
+      --bg:            #F4F6FA;
+      --surface:       #FFFFFF;
+      --surface2:      #F1F3F8;
+      --border:        rgba(0,0,0,0.10);
+      --border2:       rgba(0,0,0,0.18);
+      --text:          #1A1D23;
+      --text2:         #5A6175;
+      --text3:         #9299AA;
+      --green:         #1D9E75;
+      --green-bg:      #E1F5EE;
+      --amber:         #EF9F27;
+      --amber-bg:      #FAEEDA;
+      --red:           #E24B4A;
+      --red-bg:        #FCEBEB;
+      --blue-bg:       #E6F1FB;
+      --blue-text:     #185FA5;
+      --radius-sm:     8px;
+      --radius-md:     12px;
+      --radius-lg:     16px;
+      --radius-full:   9999px;
+      --shadow-sm:     0 1px 4px rgba(0,0,0,0.08);
+      --shadow-md:     0 4px 16px rgba(0,0,0,0.10);
+      --font:          'Noto Sans JP', sans-serif;
+      --nav-h:         64px;
+      --header-h:      56px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+      overscroll-behavior: none;
+    }
+
+    /* ─────────────────────────────────────────
+       アプリシェル
+    ───────────────────────────────────────── */
+    #app {
+      max-width: 430px;
+      margin: 0 auto;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+    }
+
+    /* ─────────────────────────────────────────
+       トップヘッダー
+    ───────────────────────────────────────── */
+    .app-header {
+      height: var(--header-h);
+      background: var(--primary);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 10;
+    }
+    .app-header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .header-actions {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+    }
+    .header-btn {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 22px;
+      cursor: pointer;
+      position: relative;
+      line-height: 1;
+      padding: 4px;
+      border-radius: var(--radius-sm);
+      transition: background 0.15s;
+    }
+    .header-btn:hover { background: rgba(255,255,255,0.15); }
+    .badge-dot {
+      position: absolute;
+      top: 3px; right: 3px;
+      width: 8px; height: 8px;
+      background: var(--red);
+      border-radius: 50%;
+      border: 1.5px solid var(--primary);
+    }
+
+    /* ─────────────────────────────────────────
+       スクリーン切り替え
+    ───────────────────────────────────────── */
+    .screen {
+      display: none;
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+    }
+    .screen.active { display: block; }
+
+    /* ─────────────────────────────────────────
+       ボトムナビ
+    ───────────────────────────────────────── */
+    .bottom-nav {
+      height: var(--nav-h);
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .nav-tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      border: none;
+      background: none;
+      color: var(--text3);
+      font-family: var(--font);
+      font-size: 10px;
+      cursor: pointer;
+      position: relative;
+      transition: color 0.15s;
+    }
+    .nav-tab i { font-size: 22px; line-height: 1; }
+    .nav-tab.active { color: var(--primary); }
+    .nav-badge {
+      position: absolute;
+      top: 8px; right: calc(50% - 18px);
+      background: var(--red);
+      color: white;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: var(--radius-full);
+      min-width: 16px;
+      text-align: center;
+    }
+
+    /* ─────────────────────────────────────────
+       ① ホーム画面
+    ───────────────────────────────────────── */
+    .home-hero {
+      background: var(--primary);
+      padding: 16px 16px 24px;
+      color: white;
+      position: relative;
+    }
+    .home-hero::after {
+      content: '';
+      position: absolute;
+      bottom: -1px; left: 0; right: 0;
+      height: 20px;
+      background: var(--surface);
+      border-radius: 20px 20px 0 0;
+    }
+    .hero-greeting { font-size: 13px; opacity: 0.8; margin-bottom: 2px; }
+    .hero-name { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
+
+    .next-dose-card {
+      background: rgba(255,255,255,0.16);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .dose-icon {
+      width: 44px; height: 44px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+    .dose-label { font-size: 11px; opacity: 0.75; margin-bottom: 2px; }
+    .dose-time  { font-size: 20px; font-weight: 700; line-height: 1.1; }
+    .dose-meds  { font-size: 12px; opacity: 0.85; margin-top: 3px; }
+
+    .home-body { padding: 16px; display: flex; flex-direction: column; gap: 20px; }
+
+    .section-heading {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text2);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .section-link {
+      font-size: 12px;
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .schedule-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .slot-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      background: var(--surface);
+      cursor: pointer;
+      transition: box-shadow 0.15s, transform 0.1s;
+    }
+    .slot-card:hover { box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+    .slot-card.done { background: var(--surface2); }
+    .slot-time  { font-size: 12px; color: var(--text3); margin-bottom: 4px; }
+    .slot-name  { font-size: 14px; font-weight: 700; color: var(--text); }
+    .slot-count { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+    .pill-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 9px;
+      border-radius: var(--radius-full);
+      margin-top: 8px;
+    }
+    .badge-done     { background: var(--green-bg);   color: #0F6E56; }
+    .badge-soon     { background: var(--amber-bg);   color: #854F0B; }
+    .badge-upcoming { background: var(--blue-bg);    color: var(--blue-text); }
+    .badge-missed   { background: var(--red-bg);     color: #A32D2D; }
+
+    .family-list {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .family-list::-webkit-scrollbar { display: none; }
+    .family-item {
+      min-width: 76px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 8px;
+      text-align: center;
+      flex-shrink: 0;
+      background: var(--surface);
+    }
+    .family-avatar {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      font-weight: 700;
+      margin: 0 auto 6px;
+    }
+    .family-name  { font-size: 12px; font-weight: 700; color: var(--text); }
+    .family-state { font-size: 10px; color: var(--text2); margin-top: 2px; display: flex; align-items: center; justify-content: center; gap: 3px; }
+    .state-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot-green { background: var(--green); }
+    .dot-amber { background: var(--amber); }
+    .dot-red   { background: var(--red); }
+
+    /* ─────────────────────────────────────────
+       ② お薬一覧
+    ───────────────────────────────────────── */
+    .search-bar {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    .search-input {
+      width: 100%;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-full);
+      padding: 9px 16px 9px 38px;
+      font-family: var(--font);
+      font-size: 14px;
+      background: var(--surface2);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .search-input:focus { border-color: var(--primary); background: var(--surface); }
+    .search-wrap { position: relative; }
+    .search-wrap i {
+      position: absolute;
+      left: 12px; top: 50%;
+      transform: translateY(-50%);
+      color: var(--text3);
+      font-size: 18px;
+      pointer-events: none;
+    }
+
+    .med-list-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .med-list-item:hover { background: var(--surface2); }
+    .med-color-bar {
+      width: 4px;
+      height: 44px;
+      border-radius: var(--radius-full);
+      flex-shrink: 0;
+    }
+    .med-info-col { flex: 1; min-width: 0; }
+    .med-name  { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .med-sub   { font-size: 12px; color: var(--text2); margin-top: 2px; }
+    .med-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+    .time-chip {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: var(--surface2);
+      color: var(--text2);
+      border: 1px solid var(--border);
+    }
+    .med-arrow { color: var(--text3); font-size: 18px; flex-shrink: 0; }
+
+    .fab-btn {
+      position: fixed;
+      bottom: calc(var(--nav-h) + 16px);
+      right: calc(50% - 215px + 16px);
+      width: 52px; height: 52px;
+      background: var(--primary);
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 26px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(37,99,200,0.35);
+      transition: transform 0.15s, box-shadow 0.15s;
+      z-index: 20;
+    }
+    .fab-btn:hover { transform: scale(1.06); box-shadow: 0 6px 20px rgba(37,99,200,0.4); }
+
+    /* ─────────────────────────────────────────
+       ③ 服薬確認（カメラ）
+    ───────────────────────────────────────── */
+    .camera-screen { display: flex; flex-direction: column; height: 100%; }
+
+    .camera-view {
+      background: #0f1117;
+      height: 240px;
+      flex-shrink: 0;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .camera-view video,
+    .camera-view canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+    .camera-view video.active,
+    .camera-view canvas.active { display: block; }
+    .camera-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .camera-placeholder i { font-size: 48px; color: rgba(255,255,255,0.3); }
+    .camera-placeholder p { font-size: 13px; color: rgba(255,255,255,0.5); }
+    .camera-start-btn {
+      margin-top: 8px;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: var(--radius-full);
+      color: white;
+      font-family: var(--font);
+      font-size: 13px;
+      padding: 8px 20px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .camera-start-btn:hover { background: rgba(255,255,255,0.25); }
+
+    .camera-frame-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .corner {
+      position: absolute;
+      width: 18px; height: 18px;
+      border-color: white;
+      border-style: solid;
+      opacity: 0.8;
+    }
+    .corner-tl { top: 20px; left: 20px; border-width: 2px 0 0 2px; border-radius: 3px 0 0 0; }
+    .corner-tr { top: 20px; right: 20px; border-width: 2px 2px 0 0; border-radius: 0 3px 0 0; }
+    .corner-bl { bottom: 20px; left: 20px; border-width: 0 0 2px 2px; border-radius: 0 0 0 3px; }
+    .corner-br { bottom: 20px; right: 20px; border-width: 0 2px 2px 0; border-radius: 0 0 3px 0; }
+    .camera-label-overlay {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: rgba(255,255,255,0.6);
+      white-space: nowrap;
+    }
+
+    .confirm-body { padding: 16px; overflow-y: auto; flex: 1; }
+    .confirm-heading { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+
+    .confirm-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .check-btn {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border2);
+      background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .check-btn.checked {
+      background: var(--green-bg);
+      border-color: var(--green);
+      color: var(--green);
+    }
+    .check-btn i { font-size: 15px; }
+    .confirm-med-name { flex: 1; font-size: 14px; font-weight: 700; }
+    .confirm-dose     { font-size: 12px; color: var(--text2); }
+
+    .btn-primary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 14px;
+      font-family: var(--font);
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 14px;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover  { background: var(--primary-dark); }
+    .btn-primary:active { transform: scale(0.98); }
+
+    .btn-secondary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      background: var(--surface2);
+      color: var(--text2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      font-family: var(--font);
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.15s;
+    }
+    .btn-secondary:hover { background: var(--border); }
+
+    /* ─────────────────────────────────────────
+       ④ 通知一覧
+    ───────────────────────────────────────── */
+    .notif-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .notif-header span { font-size: 13px; color: var(--text2); }
+    .read-all-btn {
+      font-size: 12px;
+      color: var(--primary);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: var(--font);
+      font-weight: 500;
+    }
+
+    .notif-item {
+      display: flex;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .notif-item:hover { background: var(--surface2); }
+    .notif-item.unread { background: #F0F5FF; }
+    .notif-icon-wrap {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 19px;
+      flex-shrink: 0;
+    }
+    .ni-alert  { background: var(--amber-bg); color: #854F0B; }
+    .ni-check  { background: var(--green-bg); color: #0F6E56; }
+    .ni-cam    { background: var(--blue-bg);  color: var(--blue-text); }
+    .ni-warn   { background: var(--red-bg);   color: #A32D2D; }
+
+    .notif-body { flex: 1; min-width: 0; }
+    .notif-title { font-size: 14px; font-weight: 700; color: var(--text); }
+    .notif-desc  { font-size: 12px; color: var(--text2); margin-top: 3px; line-height: 1.5; }
+    .notif-time  { font-size: 11px; color: var(--text3); margin-top: 4px; }
+    .unread-indicator {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      flex-shrink: 0;
+      margin-top: 5px;
+    }
+
+    /* ─────────────────────────────────────────
+       ⑤ お薬の登録（QR / 手動）
+    ───────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 13px;
+      border: none;
+      background: none;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text3);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .qr-view {
+      background: #0f1117;
+      height: 220px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      position: relative;
+    }
+    .qr-box {
+      width: 150px; height: 150px;
+      border: 1.5px solid rgba(255,255,255,0.3);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .qr-box .corner { opacity: 1; }
+    .qr-box .corner-tl { top: -2px; left: -2px; }
+    .qr-box .corner-tr { top: -2px; right: -2px; }
+    .qr-box .corner-bl { bottom: -2px; left: -2px; }
+    .qr-box .corner-br { bottom: -2px; right: -2px; }
+    .qr-scan-line {
+      position: absolute;
+      width: 100%;
+      height: 2px;
+      background: rgba(37,99,200,0.7);
+      top: 0;
+      animation: scan 2s linear infinite;
+    }
+    @keyframes scan {
+      0%   { top: 0; }
+      100% { top: 100%; }
+    }
+    .qr-icon-inner { color: rgba(255,255,255,0.25); font-size: 60px; }
+    .qr-hint { color: rgba(255,255,255,0.55); font-size: 12px; text-align: center; padding: 0 24px; }
+    .qr-sub  { color: rgba(255,255,255,0.35); font-size: 10px; }
+
+    .form-section { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+    .form-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text2);
+      margin-bottom: 6px;
+      display: block;
+    }
+    .form-input {
+      width: 100%;
+      border: 1px solid var(--border2);
+      border-radius: var(--radius-sm);
+      padding: 11px 14px;
+      font-family: var(--font);
+      font-size: 15px;
+      color: var(--text);
+      background: var(--surface);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .form-input:focus { border-color: var(--primary); }
+    .form-input::placeholder { color: var(--text3); }
+
+    .timing-chips {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .timing-chip {
+      font-size: 13px;
+      font-weight: 500;
+      padding: 7px 14px;
+      border-radius: var(--radius-full);
+      border: 1.5px solid var(--border2);
+      background: var(--surface);
+      color: var(--text2);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .timing-chip.selected {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    .dose-row { display: flex; gap: 8px; }
+    .dose-row .form-input:first-child { flex: 1; }
+    .dose-row select.form-input { flex: 1; cursor: pointer; }
+
+    .form-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2px 0;
+    }
+
+    /* ─────────────────────────────────────────
+       トースト通知
+    ───────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: calc(var(--nav-h) + 16px);
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #1A1D23;
+      color: white;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 10px 20px;
+      border-radius: var(--radius-full);
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s, transform 0.25s;
+      z-index: 100;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ─────────────────────────────────────────
+       スクロールバー
+    ───────────────────────────────────────── */
+    .screen::-webkit-scrollbar { width: 3px; }
+    .screen::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ─── ヘッダー ─── -->
+  <header class="app-header">
+    <h1 id="header-title">お薬手帳</h1>
+    <div class="header-actions">
+      <button class="header-btn" onclick="showScreen('notif')" aria-label="通知">
+        <i class="ti ti-bell"></i>
+        <span class="badge-dot" id="notif-dot"></span>
+      </button>
+      <button class="header-btn" aria-label="プロフィール">
+        <i class="ti ti-user-circle"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ─── ① ホーム ─── -->
+  <section class="screen active" id="screen-home">
+    <div class="home-hero">
+      <p class="hero-greeting">おはようございます</p>
+      <p class="hero-name">田中 花子 さん</p>
+      <div class="next-dose-card">
+        <div class="dose-icon">💊</div>
+        <div>
+          <p class="dose-label">次の服薬時間</p>
+          <p class="dose-time">12:00（昼食後）</p>
+          <p class="dose-meds">メトホルミン・アムロジピン 他2種</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="home-body">
+      <!-- 本日スケジュール -->
+      <div>
+        <div class="section-heading">
+          本日のスケジュール
+          <a href="#" class="section-link" onclick="showScreen('meds');return false;">すべて見る</a>
+        </div>
+        <div class="schedule-grid">
+          <div class="slot-card done" onclick="showScreen('camera')">
+            <p class="slot-time">08:00 朝食後</p>
+            <p class="slot-name">アムロジピン</p>
+            <p class="slot-count">1錠 × 2種</p>
+            <span class="pill-badge badge-done"><i class="ti ti-check" style="font-size:12px;"></i>服薬済み</span>
+          </div>
+          <div class="slot-card" onclick="showScreen('camera')">
+            <p class="slot-time">12:00 昼食後</p>
+            <p class="slot-name">メトホルミン</p>
+            <p class="slot-count">1錠 × 3種</p>
+            <span class="pill-badge badge-soon"><i class="ti ti-clock" style="font-size:12px;"></i>まもなく</span>
+          </div>
+          <div class="slot-card">
+            <p class="slot-time">18:00 夕食後</p>
+            <p class="slot-name">アトルバスタチン</p>
+            <p class="slot-count">1錠 × 1種</p>
+            <span class="pill-badge badge-upcoming"><i class="ti ti-calendar" style="font-size:12px;"></i>予定</span>
+          </div>
+          <div class="slot-card">
+            <p class="slot-time">22:00 就寝前</p>
+            <p class="slot-name">エソメプラゾール</p>
+            <p class="slot-count">1カプセル</p>
+            <span class="pill-badge badge-upcoming"><i class="ti ti-calendar" style="font-size:12px;"></i>予定</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 家族の状況 -->
+      <div>
+        <div class="section-heading">家族の服薬状況</div>
+        <div class="family-list">
+          <div class="family-item">
+            <div class="family-avatar" style="background:#E6F1FB;color:#185FA5;">父</div>
+            <p class="family-name">田中 一郎</p>
+            <p class="family-state"><span class="state-dot dot-green"></span>服薬済み</p>
+          </div>
+          <div class="family-item">
+            <div class="family-avatar" style="background:var(--amber-bg);color:#854F0B;">母</div>
+            <p class="family-name">田中 幸子</p>
+            <p class="family-state"><span class="state-dot dot-amber"></span>未確認</p>
+          </div>
+          <div class="family-item">
+            <div class="family-avatar" style="background:var(--green-bg);color:#0F6E56;">祖父</div>
+            <p class="family-name">田中 正雄</p>
+            <p class="family-state"><span class="state-dot dot-green"></span>服薬済み</p>
+          </div>
+          <div class="family-item">
+            <div class="family-avatar" style="background:#FBEAF0;color:#993556;">祖母</div>
+            <p class="family-name">田中 登美</p>
+            <p class="family-state"><span class="state-dot dot-red"></span>未服薬</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ② お薬一覧 ─── -->
+  <section class="screen" id="screen-meds">
+    <div class="search-bar">
+      <div class="search-wrap">
+        <i class="ti ti-search"></i>
+        <input class="search-input" type="text" placeholder="薬を検索..." id="med-search">
+      </div>
+    </div>
+
+    <div id="med-list">
+      <div class="med-list-item">
+        <div class="med-color-bar" style="background:#2563C8;"></div>
+        <div class="med-info-col">
+          <p class="med-name">アムロジピン錠 5mg</p>
+          <p class="med-sub">高血圧症・狭心症 ／ ○○病院</p>
+          <div class="med-chips">
+            <span class="time-chip">朝食後</span>
+            <span class="time-chip">1錠/日</span>
+          </div>
+        </div>
+        <i class="ti ti-chevron-right med-arrow"></i>
+      </div>
+      <div class="med-list-item">
+        <div class="med-color-bar" style="background:#1D9E75;"></div>
+        <div class="med-info-col">
+          <p class="med-name">メトホルミン塩酸塩錠 250mg</p>
+          <p class="med-sub">2型糖尿病 ／ △△クリニック</p>
+          <div class="med-chips">
+            <span class="time-chip">朝食後</span>
+            <span class="time-chip">昼食後</span>
+            <span class="time-chip">夕食後</span>
+          </div>
+        </div>
+        <i class="ti ti-chevron-right med-arrow"></i>
+      </div>
+      <div class="med-list-item">
+        <div class="med-color-bar" style="background:#EF9F27;"></div>
+        <div class="med-info-col">
+          <p class="med-name">アトルバスタチン錠 10mg</p>
+          <p class="med-sub">脂質異常症 ／ ○○病院</p>
+          <div class="med-chips">
+            <span class="time-chip">夕食後</span>
+            <span class="time-chip">1錠/日</span>
+          </div>
+        </div>
+        <i class="ti ti-chevron-right med-arrow"></i>
+      </div>
+      <div class="med-list-item">
+        <div class="med-color-bar" style="background:#D4537E;"></div>
+        <div class="med-info-col">
+          <p class="med-name">エソメプラゾールカプセル 20mg</p>
+          <p class="med-sub">逆流性食道炎 ／ △△クリニック</p>
+          <div class="med-chips">
+            <span class="time-chip">就寝前</span>
+            <span class="time-chip">1カプセル/日</span>
+          </div>
+        </div>
+        <i class="ti ti-chevron-right med-arrow"></i>
+      </div>
+      <div class="med-list-item">
+        <div class="med-color-bar" style="background:#888780;"></div>
+        <div class="med-info-col">
+          <p class="med-name">カルベジロール錠 2.5mg</p>
+          <p class="med-sub">慢性心不全 ／ ○○病院</p>
+          <div class="med-chips">
+            <span class="time-chip">朝食後</span>
+            <span class="time-chip">夕食後</span>
+          </div>
+        </div>
+        <i class="ti ti-chevron-right med-arrow"></i>
+      </div>
+    </div>
+
+    <!-- FABボタン：お薬追加 -->
+    <button class="fab-btn" onclick="showScreen('register')" aria-label="お薬を追加">
+      <i class="ti ti-plus"></i>
+    </button>
+  </section>
+
+  <!-- ─── ③ 服薬確認（カメラ） ─── -->
+  <section class="screen" id="screen-camera">
+    <div class="camera-screen">
+      <div class="camera-view" id="camera-view">
+        <video id="camera-video" autoplay playsinline></video>
+        <div class="camera-placeholder" id="camera-placeholder">
+          <i class="ti ti-camera-off"></i>
+          <p>カメラを起動して服薬を記録</p>
+          <button class="camera-start-btn" onclick="startCamera()">
+            <i class="ti ti-camera" style="font-size:14px;vertical-align:-2px;"></i>
+            カメラを起動
+          </button>
+        </div>
+        <div class="camera-frame-overlay">
+          <div class="corner corner-tl"></div>
+          <div class="corner corner-tr"></div>
+          <div class="corner corner-bl"></div>
+          <div class="corner corner-br"></div>
+          <p class="camera-label-overlay" id="cam-status">内向きカメラ</p>
+        </div>
+      </div>
+
+      <div class="confirm-body">
+        <p class="confirm-heading">12:00 昼食後の服薬内容</p>
+
+        <div class="confirm-item">
+          <button class="check-btn checked" onclick="toggleCheck(this)" aria-label="チェック切り替え">
+            <i class="ti ti-check"></i>
+          </button>
+          <p class="confirm-med-name">メトホルミン塩酸塩錠 250mg</p>
+          <p class="confirm-dose">1錠</p>
+        </div>
+        <div class="confirm-item">
+          <button class="check-btn checked" onclick="toggleCheck(this)" aria-label="チェック切り替え">
+            <i class="ti ti-check"></i>
+          </button>
+          <p class="confirm-med-name">アムロジピン錠 5mg</p>
+          <p class="confirm-dose">1錠</p>
+        </div>
+        <div class="confirm-item">
+          <button class="check-btn" onclick="toggleCheck(this)" aria-label="チェック切り替え">
+            <i class="ti ti-check"></i>
+          </button>
+          <p class="confirm-med-name">カルベジロール錠 2.5mg</p>
+          <p class="confirm-dose">1錠</p>
+        </div>
+
+        <button class="btn-primary" onclick="submitDose()">
+          <i class="ti ti-send" style="font-size:18px;"></i>
+          服薬完了を記録・家族に通知
+        </button>
+        <button class="btn-secondary" onclick="showToast('後で記録できます')">
+          <i class="ti ti-clock" style="font-size:16px;"></i>
+          後で記録する
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ④ 通知一覧 ─── -->
+  <section class="screen" id="screen-notif">
+    <div class="notif-header">
+      <span>3件の未読通知</span>
+      <button class="read-all-btn" onclick="markAllRead()">すべて既読にする</button>
+    </div>
+
+    <div id="notif-list">
+      <div class="notif-item unread">
+        <div class="notif-icon-wrap ni-alert"><i class="ti ti-alarm"></i></div>
+        <div class="notif-body">
+          <p class="notif-title">服薬時間です（昼食後）</p>
+          <p class="notif-desc">田中 花子さん、12:00の薬を飲む時間です。<br>メトホルミン・アムロジピン・カルベジロール</p>
+          <p class="notif-time">今日 12:00</p>
+        </div>
+        <div class="unread-indicator"></div>
+      </div>
+      <div class="notif-item unread">
+        <div class="notif-icon-wrap ni-cam"><i class="ti ti-video"></i></div>
+        <div class="notif-body">
+          <p class="notif-title">服薬映像が保存されました</p>
+          <p class="notif-desc">田中 一郎さんの朝食後の服薬映像を確認できます</p>
+          <p class="notif-time">今日 08:05</p>
+        </div>
+        <div class="unread-indicator"></div>
+      </div>
+      <div class="notif-item unread">
+        <div class="notif-icon-wrap ni-warn"><i class="ti ti-alert-triangle"></i></div>
+        <div class="notif-body">
+          <p class="notif-title">田中 幸子さんが未服薬です</p>
+          <p class="notif-desc">朝食後の服薬記録がありません。確認してください。</p>
+          <p class="notif-time">今日 09:30</p>
+        </div>
+        <div class="unread-indicator"></div>
+      </div>
+      <div class="notif-item">
+        <div class="notif-icon-wrap ni-check"><i class="ti ti-circle-check"></i></div>
+        <div class="notif-body">
+          <p class="notif-title">服薬完了（朝食後）</p>
+          <p class="notif-desc">田中 花子さんが朝食後の服薬を完了しました</p>
+          <p class="notif-time">昨日 08:03</p>
+        </div>
+      </div>
+      <div class="notif-item">
+        <div class="notif-icon-wrap ni-check"><i class="ti ti-circle-check"></i></div>
+        <div class="notif-body">
+          <p class="notif-title">お薬の登録が完了しました</p>
+          <p class="notif-desc">QRコードからアムロジピン 5mgが登録されました</p>
+          <p class="notif-time">昨日 14:20</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ⑤ お薬の登録 ─── -->
+  <section class="screen" id="screen-register">
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tab-qr"     onclick="switchTab('qr')">QRコード読み取り</button>
+      <button class="tab-btn"        id="tab-manual" onclick="switchTab('manual')">手動入力</button>
+    </div>
+
+    <!-- QRパネル -->
+    <div class="tab-panel active" id="panel-qr">
+      <div class="qr-view">
+        <div class="qr-box">
+          <div class="qr-scan-line"></div>
+          <div class="corner corner-tl"></div>
+          <div class="corner corner-tr"></div>
+          <div class="corner corner-bl"></div>
+          <div class="corner corner-br"></div>
+          <i class="ti ti-qrcode qr-icon-inner"></i>
+        </div>
+        <p class="qr-hint">薬局発行のQRコードをかざしてください</p>
+        <p class="qr-sub">JAHISフォーマット対応</p>
+      </div>
+      <div class="form-section">
+        <button class="btn-primary" onclick="showToast('カメラを起動しました')">
+          <i class="ti ti-camera" style="font-size:18px;"></i>
+          カメラでQRコードを読み取る
+        </button>
+        <button class="btn-secondary" onclick="switchTab('manual')">
+          <i class="ti ti-pencil" style="font-size:16px;"></i>
+          手動で入力する
+        </button>
+      </div>
+    </div>
+
+    <!-- 手動入力パネル -->
+    <div class="tab-panel" id="panel-manual">
+      <div class="form-section">
+        <div>
+          <label class="form-label" for="input-medname">薬の名前</label>
+          <input class="form-input" id="input-medname" type="text" placeholder="例：アムロジピン錠 5mg">
+        </div>
+        <div>
+          <label class="form-label">服用タイミング</label>
+          <div class="timing-chips">
+            <button class="timing-chip" onclick="toggleChip(this)">朝食前</button>
+            <button class="timing-chip selected" onclick="toggleChip(this)">朝食後</button>
+            <button class="timing-chip" onclick="toggleChip(this)">昼食前</button>
+            <button class="timing-chip" onclick="toggleChip(this)">昼食後</button>
+            <button class="timing-chip" onclick="toggleChip(this)">夕食前</button>
+            <button class="timing-chip" onclick="toggleChip(this)">夕食後</button>
+            <button class="timing-chip" onclick="toggleChip(this)">就寝前</button>
+            <button class="timing-chip" onclick="toggleChip(this)">頓服</button>
+          </div>
+        </div>
+        <div>
+          <label class="form-label" for="input-dose">用量</label>
+          <div class="dose-row">
+            <input class="form-input" id="input-dose" type="number" min="0.5" step="0.5" placeholder="1">
+            <select class="form-input" id="input-unit">
+              <option>錠</option>
+              <option>カプセル</option>
+              <option>包</option>
+              <option>mL</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="form-label" for="input-hospital">処方医療機関（任意）</label>
+          <input class="form-input" id="input-hospital" type="text" placeholder="例：○○病院">
+        </div>
+        <hr class="form-divider">
+        <button class="btn-primary" onclick="registerMed()">
+          <i class="ti ti-plus" style="font-size:18px;"></i>
+          お薬を登録する
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── ボトムナビ ─── -->
+  <nav class="bottom-nav">
+    <button class="nav-tab active" id="nav-home"     onclick="showScreen('home')"     aria-label="ホーム">
+      <i class="ti ti-home"></i>ホーム
+    </button>
+    <button class="nav-tab"        id="nav-meds"     onclick="showScreen('meds')"     aria-label="お薬">
+      <i class="ti ti-pill"></i>お薬
+    </button>
+    <button class="nav-tab"        id="nav-camera"   onclick="showScreen('camera')"   aria-label="服薬記録">
+      <i class="ti ti-camera"></i>服薬記録
+    </button>
+    <button class="nav-tab"        id="nav-notif"    onclick="showScreen('notif')"    aria-label="通知">
+      <i class="ti ti-bell"></i>通知
+      <span class="nav-badge" id="nav-badge">3</span>
+    </button>
+    <button class="nav-tab"        id="nav-register" onclick="showScreen('register')" aria-label="登録">
+      <i class="ti ti-plus"></i>登録
+    </button>
+  </nav>
+
+</div>
+
+<!-- トースト -->
+<div class="toast" id="toast"></div>
+
+<script>
+  /* ─────────────────────────────
+     画面切り替え
+  ───────────────────────────── */
+  const screens = ['home','meds','camera','notif','register'];
+  const titles  = {
+    home: 'お薬手帳',
+    meds: 'お薬一覧',
+    camera: '服薬確認',
+    notif: '通知',
+    register: 'お薬を登録'
+  };
+
+  function showScreen(id) {
+    screens.forEach(s => {
+      document.getElementById('screen-' + s).classList.remove('active');
+      const nav = document.getElementById('nav-' + s);
+      if (nav) nav.classList.remove('active');
+    });
+    document.getElementById('screen-' + id).classList.add('active');
+    const nav = document.getElementById('nav-' + id);
+    if (nav) nav.classList.add('active');
+    document.getElementById('header-title').textContent = titles[id] || 'お薬手帳';
+  }
+
+  /* ─────────────────────────────
+     服薬チェック
+  ───────────────────────────── */
+  function toggleCheck(btn) {
+    btn.classList.toggle('checked');
+  }
+
+  /* ─────────────────────────────
+     服薬完了送信
+  ───────────────────────────── */
+  function submitDose() {
+    const checks = document.querySelectorAll('#screen-camera .check-btn');
+    const total   = checks.length;
+    const checked = [...checks].filter(c => c.classList.contains('checked')).length;
+    showToast(`✅ ${checked}/${total} 種 記録完了・家族に通知しました`);
+    setTimeout(() => showScreen('home'), 1200);
+  }
+
+  /* ─────────────────────────────
+     カメラ起動（MediaDevices API）
+  ───────────────────────────── */
+  let stream = null;
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' },
+        audio: false
+      });
+      const video = document.getElementById('camera-video');
+      video.srcObject = stream;
+      video.classList.add('active');
+      document.getElementById('camera-placeholder').style.display = 'none';
+      document.getElementById('cam-status').textContent = '● 録画中';
+    } catch (err) {
+      showToast('カメラへのアクセスが許可されていません');
+    }
+  }
+
+  /* ─────────────────────────────
+     QR / 手動タブ切り替え
+  ───────────────────────────── */
+  function switchTab(id) {
+    ['qr','manual'].forEach(t => {
+      document.getElementById('tab-' + t).classList.remove('active');
+      document.getElementById('panel-' + t).classList.remove('active');
+    });
+    document.getElementById('tab-' + id).classList.add('active');
+    document.getElementById('panel-' + id).classList.add('active');
+  }
+
+  /* ─────────────────────────────
+     タイミングチップ切り替え
+  ───────────────────────────── */
+  function toggleChip(btn) {
+    btn.classList.toggle('selected');
+  }
+
+  /* ─────────────────────────────
+     お薬登録
+  ───────────────────────────── */
+  function registerMed() {
+    const name = document.getElementById('input-medname').value.trim();
+    if (!name) { showToast('薬の名前を入力してください'); return; }
+
+    const dose  = document.getElementById('input-dose').value || '1';
+    const unit  = document.getElementById('input-unit').value;
+    const chips = [...document.querySelectorAll('.timing-chip.selected')].map(c => c.textContent);
+
+    if (chips.length === 0) { showToast('服用タイミングを1つ以上選んでください'); return; }
+
+    const colors = ['#2563C8','#1D9E75','#EF9F27','#D4537E','#888780','#534AB7','#3C3489'];
+    const color  = colors[document.querySelectorAll('#med-list .med-list-item').length % colors.length];
+
+    const html = `
+      <div class="med-list-item">
+        <div class="med-color-bar" style="background:${color};"></div>
+        <div class="med-info-col">
+          <p class="med-name">${name}</p>
+          <p class="med-sub">手動登録</p>
+          <div class="med-chips">
+            ${chips.map(c => `<span class="time-chip">${c}</span>`).join('')}
+            <span class="time-chip">${dose}${unit}/回</span>
+          </div>
+        </div>
+        <i class="ti ti-chevron-right med-arrow"></i>
+      </div>`;
+
+    document.getElementById('med-list').insertAdjacentHTML('beforeend', html);
+    document.getElementById('input-medname').value = '';
+    document.getElementById('input-dose').value = '';
+    document.getElementById('input-hospital').value = '';
+    document.querySelectorAll('.timing-chip.selected').forEach(c => c.classList.remove('selected'));
+
+    showToast(`✅ ${name} を登録しました`);
+    setTimeout(() => showScreen('meds'), 800);
+  }
+
+  /* ─────────────────────────────
+     通知既読
+  ───────────────────────────── */
+  function markAllRead() {
+    document.querySelectorAll('.notif-item.unread').forEach(el => {
+      el.classList.remove('unread');
+      const dot = el.querySelector('.unread-indicator');
+      if (dot) dot.remove();
+    });
+    document.getElementById('nav-badge').style.display = 'none';
+    document.getElementById('notif-dot').style.display = 'none';
+    document.querySelector('.notif-header span').textContent = '通知はありません';
+    showToast('すべて既読にしました');
+  }
+
+  /* ─────────────────────────────
+     薬検索
+  ───────────────────────────── */
+  document.getElementById('med-search').addEventListener('input', function() {
+    const q = this.value.trim().toLowerCase();
+    document.querySelectorAll('#med-list .med-list-item').forEach(item => {
+      const name = item.querySelector('.med-name').textContent.toLowerCase();
+      item.style.display = (!q || name.includes(q)) ? '' : 'none';
+    });
+  });
+
+  /* ─────────────────────────────
+     トースト
+  ───────────────────────────── */
+  let toastTimer = null;
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  /* ─────────────────────────────
+     画面離脱時にカメラ停止
+  ───────────────────────────── */
+  document.querySelectorAll('.nav-tab:not(#nav-camera)').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+        const video = document.getElementById('camera-video');
+        video.srcObject = null;
+        video.classList.remove('active');
+        document.getElementById('camera-placeholder').style.display = '';
+        document.getElementById('cam-status').textContent = '内向きカメラ';
+      }
+    });
+  });
+</script>
+</body>
+</html>

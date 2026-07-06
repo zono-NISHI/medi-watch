@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2" />
+<title>家族・見守り - 電子お薬手帳</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#2C4A52" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/family.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="topbar-icon" aria-hidden="true">家</div>
+      <div class="topbar-title" id="page-title">家族・見守り</div>
+    </header>
+
+    <section id="patient-section" class="stack" style="display:none;">
+      <div class="card card--warm">
+        <h2>家族を招待する</h2>
+        <p class="text-sm text-muted">招待コードをご家族にお伝えください。コードを入力するとあなたの服薬状況を見守ることができます。</p>
+        <div class="invite-code-box" id="invite-code-box">読み込み中…</div>
+        <button class="btn btn-outline btn--sm" id="create-group-btn" style="width:auto; display:none;">見守りグループを作成する</button>
+      </div>
+
+      <h2>参加している家族</h2>
+      <div id="member-list" class="stack stack--tight"><p class="text-muted">読み込み中…</p></div>
+    </section>
+
+    <section id="caregiver-section" class="stack" style="display:none;">
+      <div class="card card--warm">
+        <h2>招待コードを入力</h2>
+        <p class="text-sm text-muted">ご家族から共有された招待コードを入力してください。</p>
+        <form id="join-form" class="row">
+          <input type="text" id="invite-code-input" placeholder="例：a1b2c3d4" required style="flex:1" />
+          <button type="submit" class="btn btn-accent" style="width:auto;">参加する</button>
+        </form>
+      </div>
+
+      <h2>見守り中のご家族</h2>
+      <div id="watched-list" class="stack stack--tight"><p class="text-muted">読み込み中…</p></div>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/pages/family.js"></script>
+</body>
+</html>

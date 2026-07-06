@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2" />
+<title>お薬の管理 - 電子お薬手帳</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#2C4A52" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/medications.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="topbar-icon" aria-hidden="true">薬</div>
+      <div class="topbar-title">お薬の管理</div>
+    </header>
+
+    <div class="row row--wrap" style="margin-bottom: var(--space-3);">
+      <button class="btn btn-accent btn--auto" id="open-qr-btn">QRコードで登録</button>
+      <button class="btn btn-outline btn--auto" id="open-manual-btn">手入力で登録</button>
+    </div>
+
+    <section id="medication-list" class="stack" aria-live="polite">
+      <p class="text-muted">読み込み中…</p>
+    </section>
+  </main>
+
+  <!-- QRスキャンモーダル -->
+  <dialog id="qr-modal" class="okusuri-modal">
+    <div class="okusuri-modal-inner">
+      <button class="modal-close" data-close="qr-modal" aria-label="閉じる">×</button>
+      <h2>QRコードで登録</h2>
+      <p class="text-muted text-sm">薬局で受け取った調剤明細書のQRコードを、カメラに映してください。</p>
+
+      <div class="camera-frame">
+        <video id="qr-video" autoplay playsinline muted></video>
+      </div>
+      <p class="text-sm text-muted" id="qr-status"></p>
+
+      <details style="margin-top: var(--space-2);">
+        <summary class="text-sm">QRコードの内容を直接貼り付ける</summary>
+        <div class="field" style="margin-top: var(--space-2);">
+          <textarea id="qr-manual-text" placeholder="JAHISTC08,..."></textarea>
+          <button class="btn btn-outline btn--sm" id="qr-manual-submit" style="width:auto;">この内容を解析する</button>
+        </div>
+      </details>
+    </div>
+  </dialog>
+
+  <!-- QRプレビュー確認モーダル -->
+  <dialog id="qr-preview-modal" class="okusuri-modal">
+    <div class="okusuri-modal-inner">
+      <button class="modal-close" data-close="qr-preview-modal" aria-label="閉じる">×</button>
+      <h2>読み取り内容の確認</h2>
+      <p class="text-muted text-sm">内容をご確認のうえ、登録してください。</p>
+      <div id="qr-preview-list" class="stack stack--tight"></div>
+      <button class="btn btn-accent" id="qr-confirm-btn" style="margin-top: var(--space-3);">この内容で登録する</button>
+    </div>
+  </dialog>
+
+  <!-- 手入力 登録/編集モーダル -->
+  <dialog id="manual-modal" class="okusuri-modal">
+    <div class="okusuri-modal-inner">
+      <button class="modal-close" data-close="manual-modal" aria-label="閉じる">×</button>
+      <h2 id="manual-modal-title">お薬を登録</h2>
+
+      <form id="manual-form" class="stack">
+        <div class="field">
+          <label for="m-name">薬の名前</label>
+          <input type="text" id="m-name" required placeholder="例：アムロジピン錠5mg" />
+        </div>
+        <div class="row">
+          <div class="field" style="flex:1">
+            <label for="m-dosage">用量</label>
+            <input type="text" id="m-dosage" placeholder="例：1" />
+          </div>
+          <div class="field" style="flex:1">
+            <label for="m-unit">単位</label>
+            <input type="text" id="m-unit" placeholder="例：錠" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="m-notes">メモ</label>
+          <textarea id="m-notes" placeholder="気になることがあればご記入ください"></textarea>
+        </div>
+
+        <h3 style="margin-top: var(--space-2);">服薬スケジュール</h3>
+        <div id="schedule-rows" class="stack stack--tight"></div>
+        <button type="button" class="btn btn-outline btn--sm" id="add-schedule-row" style="width:auto;">+ 時間を追加</button>
+
+        <button type="submit" class="btn btn-accent" style="margin-top: var(--space-3);">保存する</button>
+      </form>
+    </div>
+  </dialog>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="js/pages/medications.js"></script>
+</body>
+</html>

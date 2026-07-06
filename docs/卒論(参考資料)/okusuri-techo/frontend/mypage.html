@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2" />
+<title>マイページ - 電子お薬手帳</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#2C4A52" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/mypage.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="topbar-icon" aria-hidden="true">人</div>
+      <div class="topbar-title">マイページ</div>
+    </header>
+
+    <section class="card stack" id="profile-card">
+      <h2>プロフィール</h2>
+      <form id="profile-form" class="stack">
+        <div class="field">
+          <label for="p-name">お名前</label>
+          <input type="text" id="p-name" required />
+        </div>
+        <div class="field">
+          <label for="p-phone">電話番号（任意）</label>
+          <input type="tel" id="p-phone" placeholder="緊急連絡先など" />
+        </div>
+        <div class="field">
+          <label>役割</label>
+          <p id="p-role" class="text-muted" style="margin:0;"></p>
+        </div>
+        <button type="submit" class="btn btn-accent">保存する</button>
+      </form>
+    </section>
+
+    <section class="card card--warm" style="margin-top: var(--space-3);">
+      <h2>通知設定</h2>
+      <p class="text-sm text-muted">服薬リマインドや家族からのお知らせを受け取ります。</p>
+      <button class="btn btn-outline" id="enable-notif-btn">プッシュ通知を有効にする</button>
+    </section>
+
+    <button class="btn btn-danger-outline" id="logout-btn" style="margin-top: var(--space-4);">ログアウト</button>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/pages/mypage.js"></script>
+</body>
+</html>
