@@ -102,7 +102,7 @@ cp .env.example .env
 # .env を編集して Supabase の URL / Key を設定する
 ```
 
-VAPID 鍵の生成（初回のみ）:
+VAPID（Voluntary Application Server Identification）鍵の生成（初回のみ）:
 ```bash
 npx web-push generate-vapid-keys
 # 生成された PUBLIC KEY / PRIVATE KEY を .env に設定
