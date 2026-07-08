@@ -7,6 +7,6 @@ window.APP_CONFIG = {
   API_BASE_URL: 'http://localhost:3000/api',
 
   // Supabase（フロントから直接 Auth セッション維持や Realtime に使う場合のみ必要）
-  SUPABASE_URL: 'https://your-project-ref.supabase.co',
-  SUPABASE_ANON_KEY: 'your-anon-key',
+  SUPABASE_URL: 'https://wkbzgpxjtswzbxyapmlr.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_itaNkkTX1T3ANaKqqZmz7w_B5u0NV-y',
 };
