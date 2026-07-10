@@ -3,7 +3,7 @@
 //  Supabase Auth を利用したサインアップ／サインイン／サインアウト
 // ============================================================
 const express = require('express');
-const { supabaseAdmin, createUserClient } = require('../lib/supabase');
+const { supabaseAdmin, createUserClient } = require('../supabase/supabase');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
 

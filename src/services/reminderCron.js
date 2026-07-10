@@ -10,7 +10,7 @@
 // ============================================================
 const cron = require('node-cron');
 const webpush = require('web-push');
-const { supabaseAdmin } = require('../lib/supabase');
+const { supabaseAdmin } = require('../supabase/supabase');
 const { notifyCareGroup, vapidConfigured } = require('./notificationService');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
