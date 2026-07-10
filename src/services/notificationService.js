@@ -5,7 +5,7 @@
 //  - service_role 権限（supabaseAdmin）を使用するためRLSの影響を受けない
 // ============================================================
 const webpush = require('web-push');
-const { supabaseAdmin } = require('../lib/supabase');
+const { supabaseAdmin } = require('../supabase/supabase');
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;

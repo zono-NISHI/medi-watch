@@ -3,7 +3,7 @@
 //  Authorization: Bearer <access_token> を検証し、
 //  req.user / req.supabase（ユーザー権限のSupabaseクライアント）をセットする
 // ============================================================
-const { createUserClient, supabaseAdmin } = require('../lib/supabase');
+const { createUserClient, supabaseAdmin } = require('../supabase/supabase');
 
 async function requireAuth(req, res, next) {
   try {
