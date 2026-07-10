@@ -1,0 +1,17 @@
+{
+  "name": "電子お薬手帳",
+  "short_name": "お薬手帳",
+  "description": "服薬の記録を家族とリアルタイムに共有できる電子お薬手帳",
+  "start_url": "./home.html",
+  "display": "standalone",
+  "background_color": "#fbf7f0",
+  "theme_color": "#2c4a52",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
