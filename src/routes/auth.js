@@ -9,6 +9,9 @@ const { asyncHandler, sendSupabaseError } = require('../lib/utils');
 
 const router = express.Router();
 
+// 認証デバッグログの有効/無効（.env の DEBUG_AUTH で切り替え）
+const DEBUG_AUTH = process.env.DEBUG_AUTH === 'true';
+
 // ----------------------------------------------------------
 // POST /api/auth/signup
 // 新規ユーザー登録（患者 or 介護者）
@@ -60,18 +63,41 @@ router.post(
       return res.status(400).json({ error: 'メールアドレスとパスワードを入力してください。' });
     }
 
+    // デバッグ時のみ詳細を出力（.env の DEBUG_AUTH=true で有効）
+    if (DEBUG_AUTH) {
+      console.log('--- [login] リクエスト受信 ---');
+      console.log('[login] 接続先 SUPABASE_URL:', process.env.SUPABASE_URL);
+      console.log('[login] email:', JSON.stringify(email));
+      console.log('[login] パスワード文字数:', password.length);
+    }
+
     const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
     if (error) {
+      // エラー内容は常に出力する（原因追跡のため恒久的に残す）
+      console.error('[login] Supabaseエラー:', {
+        status: error.status,
+        name: error.name,
+        code: error.code,
+        message: error.message,
+      });
       return res.status(401).json({ error: 'メールアドレスまたはパスワードが正しくありません。' });
+    }
+
+    if (DEBUG_AUTH) {
+      console.log('[login] 認証成功 user_id:', data.user.id);
     }
 
     // プロフィール情報も合わせて返す
     const userClient = createUserClient(data.session.access_token);
-    const { data: profile } = await userClient
+    const { data: profile, error: profileError } = await userClient
       .from('profiles')
       .select('*')
       .eq('id', data.user.id)
       .single();
+
+    if (profileError) {
+      console.error('[login] プロフィール取得エラー:', profileError.message);
+    }
 
     res.json({ session: data.session, user: data.user, profile });
   })
