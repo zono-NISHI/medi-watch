@@ -92,3 +92,33 @@
 @media (max-width: 420px) {
   .role-select { grid-template-columns: 1fr; }
 }
+
+/* ---- パスワード表示切替 ---- */
+.password-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-wrap input {
+  width: 100%;
+  padding-right: 4.5rem; /* ボタン分の余白を確保 */
+}
+
+.password-toggle {
+  position: absolute;
+  right: 0.5rem;
+  min-height: 36px;
+  padding: 0 0.6rem;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-paper-warm);
+  color: var(--color-indigo);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.password-toggle:focus-visible {
+  outline: 3px solid var(--color-terracotta);
+  outline-offset: 2px;
+}
