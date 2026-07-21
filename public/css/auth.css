@@ -122,3 +122,23 @@
   outline: 3px solid var(--color-terracotta);
   outline-offset: 2px;
 }
+
+.field-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: #c0392b;
+}
+
+.form-error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fdecea;
+  border: 1px solid #f5c6c2;
+  color: #922b21;
+  font-size: 0.9rem;
+}
+
+input[aria-invalid='true'] {
+  border-color: #c0392b;
+}

@@ -3,7 +3,7 @@
 //  Supabase Auth を利用したサインアップ／サインイン／サインアウト
 // ============================================================
 const express = require('express');
-const { supabaseAdmin, createUserClient } = require('../supabase/supabase');
+const { supabaseAdmin, supabaseAnon, createUserClient } = require('../supabase/supabase');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
 
@@ -20,7 +20,11 @@ const DEBUG_AUTH = process.env.DEBUG_AUTH === 'true';
 router.post(
   '/signup',
   asyncHandler(async (req, res) => {
-    const { email, password, name, role } = req.body;
+    // API を直接叩かれる場合に備え、サーバー側でも正規化してから検証する
+    const email = String(req.body.email ?? '').trim().toLowerCase();
+    const name = String(req.body.name ?? '').trim();
+    const password = String(req.body.password ?? '');
+    const role = String(req.body.role ?? '');
 
     if (!email || !password || !name || !role) {
       return res.status(400).json({ error: 'メールアドレス・パスワード・氏名・役割は必須です。' });
@@ -28,12 +32,18 @@ router.post(
     if (!['patient', 'caregiver'].includes(role)) {
       return res.status(400).json({ error: '役割は patient または caregiver を指定してください。' });
     }
+    if (name.length > 50) {
+      return res.status(400).json({ error: 'お名前は50文字以内で入力してください。' });
+    }
     if (password.length < 8) {
       return res.status(400).json({ error: 'パスワードは8文字以上で設定してください。' });
     }
+    if (password.length > 72) {
+      return res.status(400).json({ error: 'パスワードは72文字以内で入力してください。' });
+    }
 
     // ユーザー作成（DBトリガーが public.profiles に行を自動作成する）
-    const { data, error } = await supabaseAdmin.auth.signUp({
+    const { data, error } = await supabaseAnon.auth.signUp({
       email,
       password,
       options: {
@@ -58,20 +68,22 @@ router.post(
 router.post(
   '/login',
   asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    // signup 側と同じ正規化をかけないと、大文字で登録した人がログインできなくなる
+    const email = String(req.body.email ?? '').trim().toLowerCase();
+    const password = String(req.body.password ?? '');
+
     if (!email || !password) {
       return res.status(400).json({ error: 'メールアドレスとパスワードを入力してください。' });
     }
 
-    // デバッグ時のみ詳細を出力（.env の DEBUG_AUTH=true で有効）
-    if (DEBUG_AUTH) {
-      console.log('--- [login] リクエスト受信 ---');
-      console.log('[login] 接続先 SUPABASE_URL:', process.env.SUPABASE_URL);
-      console.log('[login] email:', JSON.stringify(email));
-      console.log('[login] パスワード文字数:', password.length);
+    // デバッグ時のみ出力。本番では有効化されないようガードし、
+    // メールアドレスもマスクしてログに残さない。
+    if (DEBUG_AUTH && process.env.NODE_ENV !== 'production') {
+      const masked = email.replace(/^(.{2}).*(@.*)$/, '$1***$2');
+      console.log('[login] 認証試行:', masked);
     }
 
-    const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabaseAnon.auth.signInWithPassword({ email, password });
     if (error) {
       // エラー内容は常に出力する（原因追跡のため恒久的に残す）
       console.error('[login] Supabaseエラー:', {
