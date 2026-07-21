@@ -20,8 +20,12 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-// リクエストごとに、ログインユーザーのアクセストークンを使ってクライアントを生成する。
-// これによりSupabaseのRLS（Row Level Security）ポリシーがユーザー権限で適用される。
+// 認証処理（サインアップ／ログイン）用。anonキーを使うことで、
+// Supabase Auth が想定する通常のクライアント経路で処理される。
+const supabaseAnon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
 function createUserClient(accessToken) {
   return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: {
@@ -31,4 +35,4 @@ function createUserClient(accessToken) {
   });
 }
 
-module.exports = { supabaseAdmin, createUserClient };
+module.exports = { supabaseAdmin, supabaseAnon, createUserClient };

@@ -17,18 +17,26 @@
       <p class="text-muted">メールアドレスとパスワードでログインしてください。</p>
 
       <form id="login-form" class="stack" novalidate>
+        <p id="form-error" class="form-error" role="alert" hidden></p>
+
         <div class="field">
           <label for="email">メールアドレス</label>
-          <input type="email" id="email" name="email" autocomplete="email" required placeholder="example@mail.com" />
+          <input type="email" id="email" name="email" autocomplete="email"
+                 required placeholder="example@mail.com"
+                 aria-describedby="email-error" />
+          <span class="field-error" id="email-error" hidden></span>
         </div>
 
         <div class="field">
           <label for="password">パスワード</label>
           <div class="password-wrap">
-            <input type="password" id="password" name="password" autocomplete="current-password" required placeholder="パスワード" />
+            <input type="password" id="password" name="password" autocomplete="current-password"
+                   required placeholder="パスワード"
+                   aria-describedby="password-error" />
             <button type="button" class="password-toggle" id="password-toggle"
-                  aria-label="パスワードを表示" aria-pressed="false">表示</button>
+                    aria-label="パスワードを表示" aria-pressed="false">表示</button>
           </div>
+          <span class="field-error" id="password-error" hidden></span>
         </div>
 
         <button type="submit" class="btn btn-accent" id="submit-btn">ログインする</button>
@@ -40,43 +48,96 @@
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
+  <script src="js/validate.js"></script>
   <script src="js/ui.js"></script>
   <script>
-    const passwordInput = document.getElementById('password');
-    const passwordToggle = document.getElementById('password-toggle');
+    (() => {
+      'use strict';
 
-    passwordToggle.addEventListener('click', () => {
-      const isHidden = passwordInput.type === 'password';
-      passwordInput.type = isHidden ? 'text' : 'password';
-      passwordToggle.textContent = isHidden ? '隠す' : '表示';
-      passwordToggle.setAttribute('aria-label', isHidden ? 'パスワードを隠す' : 'パスワードを表示');
-      passwordToggle.setAttribute('aria-pressed', String(isHidden));
-      passwordInput.focus();
-    });
+      const form = document.getElementById('login-form');
+      const submitBtn = document.getElementById('submit-btn');
+      const formError = document.getElementById('form-error');
+      const passwordInput = document.getElementById('password');
+      const passwordToggle = document.getElementById('password-toggle');
 
-    
-    const form = document.getElementById('login-form');
-    const submitBtn = document.getElementById('submit-btn');
+      passwordToggle.addEventListener('click', () => {
+        const isHidden = passwordInput.type === 'password';
+        passwordInput.type = isHidden ? 'text' : 'password';
+        passwordToggle.textContent = isHidden ? '隠す' : '表示';
+        passwordToggle.setAttribute('aria-label', isHidden ? 'パスワードを隠す' : 'パスワードを表示');
+        passwordToggle.setAttribute('aria-pressed', String(isHidden));
+        passwordInput.focus();
+      });
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fd = new FormData(form);
-      const payload = { email: fd.get('email').trim(), password: fd.get('password') };
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'ログインしています…';
-
-      try {
-        const result = await Api.login(payload);
-        Session.set(result.session, result.user, result.profile);
-        showToast('ログインしました。', 'success');
-        setTimeout(() => (location.href = 'home.html'), 400);
-      } catch (err) {
-        handleApiError(err, 'ログインに失敗しました。');
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'ログインする';
+      function setFieldError(fieldName, message) {
+        const input = form.elements[fieldName];
+        const errorEl = document.getElementById(`${fieldName}-error`);
+        if (!errorEl) return;
+        if (message) {
+          errorEl.textContent = message;
+          errorEl.hidden = false;
+          input?.setAttribute('aria-invalid', 'true');
+        } else {
+          errorEl.textContent = '';
+          errorEl.hidden = true;
+          input?.removeAttribute('aria-invalid');
+        }
       }
-    });
+
+      ['email', 'password'].forEach((f) => {
+        form.elements[f].addEventListener('input', () => setFieldError(f, null));
+      });
+
+      let submitting = false;
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (submitting) return;
+
+        ['email', 'password'].forEach((f) => setFieldError(f, null));
+        formError.hidden = true;
+
+        const fd = new FormData(form);
+        const payload = {
+          email: (fd.get('email') ?? '').trim(),
+          password: fd.get('password') ?? '',
+        };
+
+        // ログイン時は「未入力かどうか」だけ確認する。
+        // 形式や文字数まで弾くと、既存アカウントでログインできなくなる恐れがあるため。
+        let firstInvalid = null;
+        if (!payload.email) {
+          setFieldError('email', 'メールアドレスを入力してください。');
+          firstInvalid = form.elements.email;
+        }
+        if (!payload.password) {
+          setFieldError('password', 'パスワードを入力してください。');
+          firstInvalid = firstInvalid || form.elements.password;
+        }
+        if (firstInvalid) {
+          firstInvalid.focus();
+          return;
+        }
+
+        submitting = true;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'ログインしています…';
+
+        try {
+          const result = await Api.login(payload);
+          Session.set(result.session, result.user, result.profile);
+          showToast('ログインしました。', 'success');
+          setTimeout(() => (location.href = 'home.html'), 400);
+        } catch (err) {
+          handleApiError(err, 'ログインに失敗しました。');
+          formError.textContent = err?.message || 'ログインに失敗しました。';
+          formError.hidden = false;
+          submitting = false;
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'ログインする';
+        }
+      });
+    })();
   </script>
 </body>
 </html>
