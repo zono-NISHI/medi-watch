@@ -24,7 +24,11 @@
 
         <div class="field">
           <label for="password">パスワード</label>
-          <input type="password" id="password" name="password" autocomplete="current-password" required placeholder="パスワード" />
+          <div class="password-wrap">
+            <input type="password" id="password" name="password" autocomplete="current-password" required placeholder="パスワード" />
+            <button type="button" class="password-toggle" id="password-toggle"
+                  aria-label="パスワードを表示" aria-pressed="false">表示</button>
+          </div>
         </div>
 
         <button type="submit" class="btn btn-accent" id="submit-btn">ログインする</button>
@@ -38,6 +42,19 @@
   <script src="js/api.js"></script>
   <script src="js/ui.js"></script>
   <script>
+    const passwordInput = document.getElementById('password');
+    const passwordToggle = document.getElementById('password-toggle');
+
+    passwordToggle.addEventListener('click', () => {
+      const isHidden = passwordInput.type === 'password';
+      passwordInput.type = isHidden ? 'text' : 'password';
+      passwordToggle.textContent = isHidden ? '隠す' : '表示';
+      passwordToggle.setAttribute('aria-label', isHidden ? 'パスワードを隠す' : 'パスワードを表示');
+      passwordToggle.setAttribute('aria-pressed', String(isHidden));
+      passwordInput.focus();
+    });
+
+    
     const form = document.getElementById('login-form');
     const submitBtn = document.getElementById('submit-btn');
 
