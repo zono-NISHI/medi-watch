@@ -13,6 +13,39 @@ const router = express.Router();
 const DEBUG_AUTH = process.env.DEBUG_AUTH === 'true';
 
 // ----------------------------------------------------------
+// 共通ヘルパー
+// ----------------------------------------------------------
+
+// フロント側で文言を出し分けるための識別子を必ず付ける。
+// error は「そのまま画面に出しても大丈夫な日本語」だけを入れる。
+const ERR_EMAIL_TAKEN = {
+  code: 'EMAIL_ALREADY_REGISTERED',
+  error: 'このメールアドレスは、すでに登録されています。',
+};
+
+// Supabase の「すでに登録済み」を表すエラーかどうかを判定する。
+// メッセージ文言はバージョンで変わるため、code とメッセージの両方を見る。
+function isAlreadyRegistered(error) {
+  if (!error) return false;
+  const code = String(error.code ?? '');
+  const message = String(error.message ?? '').toLowerCase();
+  return (
+    code === 'user_already_exists' ||
+    code === 'email_exists' ||
+    message.includes('already registered') ||
+    message.includes('already been registered') ||
+    message.includes('user already exists')
+  );
+}
+
+// res.status() に不正な値を渡すと例外になり、接続が切れて
+// ブラウザ側が「Failed to fetch」になる。必ず 400〜599 に丸める。
+function safeStatus(status, fallback = 400) {
+  const n = Number(status);
+  return Number.isInteger(n) && n >= 400 && n <= 599 ? n : fallback;
+}
+
+// ----------------------------------------------------------
 // POST /api/auth/signup
 // 新規ユーザー登録（患者 or 介護者）
 // body: { email, password, name, role: 'patient' | 'caregiver' }
@@ -26,32 +59,75 @@ router.post(
     const password = String(req.body.password ?? '');
     const role = String(req.body.role ?? '');
 
-    if (!email || !password || !name || !role) {
-      return res.status(400).json({ error: 'メールアドレス・パスワード・氏名・役割は必須です。' });
-    }
+    // 検証エラーは field を返し、フロント側で該当欄に赤字を出せるようにする
+    const invalid = (field, message) =>
+      res.status(400).json({ code: 'VALIDATION_ERROR', field, error: message });
+
+    if (!name) return invalid('name', 'お名前を入力してください。');
+    if (name.length > 50) return invalid('name', 'お名前は50文字以内で入力してください。');
+    if (!email) return invalid('email', 'メールアドレスを入力してください。');
+    if (!role) return invalid('role', 'ご利用の立場を選択してください。');
     if (!['patient', 'caregiver'].includes(role)) {
-      return res.status(400).json({ error: '役割は patient または caregiver を指定してください。' });
+      return invalid('role', 'ご利用の立場を選択してください。');
     }
-    if (name.length > 50) {
-      return res.status(400).json({ error: 'お名前は50文字以内で入力してください。' });
-    }
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'パスワードは8文字以上で設定してください。' });
-    }
-    if (password.length > 72) {
-      return res.status(400).json({ error: 'パスワードは72文字以内で入力してください。' });
-    }
+    if (!password) return invalid('password', 'パスワードを入力してください。');
+    if (password.length < 8) return invalid('password', 'パスワードは8文字以上で設定してください。');
+    if (password.length > 72) return invalid('password', 'パスワードは72文字以内で入力してください。');
 
     // ユーザー作成（DBトリガーが public.profiles に行を自動作成する）
-    const { data, error } = await supabaseAnon.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { name, role },
-      },
-    });
+    let data = null;
+    let error = null;
+    try {
+      ({ data, error } = await supabaseAnon.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name, role },
+        },
+      }));
+    } catch (e) {
+      // ネットワーク断や Supabase 側の異常。ここで握らないとプロセスが落ち、
+      // ブラウザには「Failed to fetch」しか届かなくなる。
+      console.error('[signup] 予期しない例外:', e);
+      return res.status(503).json({
+        code: 'UPSTREAM_ERROR',
+        error: 'ただいま登録の受付ができませんでした。少し時間をおいて、もう一度お試しください。',
+      });
+    }
 
-    if (error) return sendSupabaseError(res, error, '登録に失敗しました。');
+    if (error) {
+      // ★ 重複メールは 409 + 専用コードで返す（sendSupabaseError には渡さない）
+      if (isAlreadyRegistered(error)) {
+        return res.status(409).json(ERR_EMAIL_TAKEN);
+      }
+
+      console.error('[signup] Supabaseエラー:', {
+        status: error.status,
+        name: error.name,
+        code: error.code,
+        message: error.message,
+      });
+
+      // 送信回数の上限（Supabase のレート制限）
+      if (safeStatus(error.status, 0) === 429) {
+        return res.status(429).json({
+          code: 'RATE_LIMITED',
+          error: '短い時間に何度もお試しいただいたため、しばらく登録できません。5分ほどおいてから、もう一度お試しください。',
+        });
+      }
+
+      return res.status(safeStatus(error.status)).json({
+        code: 'SIGNUP_FAILED',
+        error: '登録できませんでした。入力内容をご確認のうえ、もう一度お試しください。',
+      });
+    }
+
+    // ★ 「メール確認ON」の設定では、重複登録でも error にならず、
+    //    identities が空配列のダミーユーザーが返る（Supabase の仕様）。
+    //    ここを見ないと「登録できました」と誤って表示してしまう。
+    if (Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
+      return res.status(409).json(ERR_EMAIL_TAKEN);
+    }
 
     res.status(201).json({
       message: '登録が完了しました。',
@@ -73,7 +149,10 @@ router.post(
     const password = String(req.body.password ?? '');
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'メールアドレスとパスワードを入力してください。' });
+      return res.status(400).json({
+        code: 'VALIDATION_ERROR',
+        error: 'メールアドレスとパスワードを入力してください。',
+      });
     }
 
     // デバッグ時のみ出力。本番では有効化されないようガードし、
@@ -83,7 +162,18 @@ router.post(
       console.log('[login] 認証試行:', masked);
     }
 
-    const { data, error } = await supabaseAnon.auth.signInWithPassword({ email, password });
+    let data = null;
+    let error = null;
+    try {
+      ({ data, error } = await supabaseAnon.auth.signInWithPassword({ email, password }));
+    } catch (e) {
+      console.error('[login] 予期しない例外:', e);
+      return res.status(503).json({
+        code: 'UPSTREAM_ERROR',
+        error: 'ただいまログインの受付ができませんでした。少し時間をおいて、もう一度お試しください。',
+      });
+    }
+
     if (error) {
       // エラー内容は常に出力する（原因追跡のため恒久的に残す）
       console.error('[login] Supabaseエラー:', {
@@ -92,7 +182,10 @@ router.post(
         code: error.code,
         message: error.message,
       });
-      return res.status(401).json({ error: 'メールアドレスまたはパスワードが正しくありません。' });
+      return res.status(401).json({
+        code: 'INVALID_CREDENTIALS',
+        error: 'メールアドレスまたはパスワードが正しくありません。',
+      });
     }
 
     if (DEBUG_AUTH) {

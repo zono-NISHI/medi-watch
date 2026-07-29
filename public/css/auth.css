@@ -123,22 +123,127 @@
   outline-offset: 2px;
 }
 
+/* ============================================================
+   お知らせ表示（入力エラー・登録エラー）
+   高齢の方が読むことを前提に、文字を大きく・行間を広く・
+   「何が起きたか」と「次にどうするか」を分けて置く。
+   ============================================================ */
+
+/* ---- 個別の入力欄のエラー ---- */
 .field-error {
-  display: block;
-  margin-top: 4px;
-  font-size: 0.85rem;
-  color: #c0392b;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 6px;
+  font-size: 1rem;      /* 0.85rem から拡大 */
+  line-height: 1.6;
+  font-weight: 600;
+  color: #a3271a;       /* 白背景でコントラスト比 約6.0:1 */
 }
 
+.field-error[hidden] { display: none; }
+
+.field-error::before {
+  content: '✕';
+  flex: none;
+  font-size: 0.9em;
+  line-height: 1.7;
+}
+
+input[aria-invalid='true'],
+input[aria-invalid='true']:focus {
+  border-color: #a3271a;
+  box-shadow: 0 0 0 1px #a3271a;
+}
+
+/* ---- フォーム全体のお知らせ ---- */
 .form-error {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #fdecea;
-  border: 1px solid #f5c6c2;
-  color: #922b21;
-  font-size: 0.9rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.85rem;
+  align-items: start;
+  margin-bottom: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid #e0b3aa;
+  border-left: 6px solid #a3271a;
+  border-radius: var(--radius-md);
+  background: #fdf4f2;
+  color: #7a1f14;
 }
 
-input[aria-invalid='true'] {
-  border-color: #c0392b;
+/* display:grid は hidden 属性より強いので、必ず打ち消しておく */
+.form-error[hidden] { display: none; }
+
+/* プログラムからフォーカスを当てるだけなので、枠線は出さない */
+.form-error:focus { outline: none; }
+.form-error:focus-visible {
+  outline: 3px solid var(--color-terracotta);
+  outline-offset: 2px;
+}
+
+.form-error__icon {
+  grid-row: 1 / span 2;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: #a3271a;
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 2rem;
+  text-align: center;
+}
+
+.form-error__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.form-error__text {
+  margin: 0.5rem 0 0;
+  font-size: 1rem;
+  line-height: 1.85;
+}
+
+.form-error__actions {
+  grid-column: 2;
+  margin-top: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.form-error__actions[hidden] { display: none; }
+
+.error-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-min, 48px);
+  padding: 0 1.25rem;
+  border: 2px solid #a3271a;
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  color: #8c2317;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.error-action:hover { background: #fbe9e6; }
+.error-action:focus-visible {
+  outline: 3px solid var(--color-terracotta);
+  outline-offset: 2px;
+}
+
+/* 画面幅が狭いときはアイコンを畳んで、本文の幅を確保する */
+@media (max-width: 380px) {
+  .form-error { grid-template-columns: 1fr; }
+  .form-error__icon { grid-row: auto; margin-bottom: 0.4rem; }
+  .form-error__actions { grid-column: 1; }
+  .error-action { width: 100%; }
 }

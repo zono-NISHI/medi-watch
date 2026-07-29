@@ -17,8 +17,13 @@
       <p class="text-muted">まずは、あなたのことを教えてください。</p>
 
       <form id="signup-form" class="stack" novalidate>
-        <!-- フォーム全体のエラー表示（スクリーンリーダーにも通知される） -->
-        <p id="form-error" class="form-error" role="alert" hidden></p>
+        <!-- フォーム全体のお知らせ（スクリーンリーダーにも通知される） -->
+        <div id="form-error" class="form-error" role="alert" tabindex="-1" hidden>
+          <span class="form-error__icon" aria-hidden="true">!</span>
+          <p class="form-error__title" id="form-error-title"></p>
+          <p class="form-error__text" id="form-error-text"></p>
+          <div class="form-error__actions" id="form-error-actions" hidden></div>
+        </div>
 
         <fieldset class="role-select">
           <legend class="visually-hidden">どちらで使いますか</legend>
@@ -38,7 +43,6 @@
           </label>
         </fieldset>
 
-        <!-- ★ 追加: 氏名欄（サーバー側で必須のため必要） -->
         <div class="field">
           <label for="name">お名前</label>
           <input type="text" id="name" name="name" autocomplete="name"
@@ -47,7 +51,6 @@
           <span class="field-error" id="name-error" hidden></span>
         </div>
 
-        <!-- ★ 変更: メールをパスワードより先に（入力順として自然） -->
         <div class="field">
           <label for="email">メールアドレス</label>
           <input type="email" id="email" name="email" autocomplete="email"
@@ -86,9 +89,13 @@
 
       const form = document.getElementById('signup-form');
       const submitBtn = document.getElementById('submit-btn');
-      const formError = document.getElementById('form-error');
       const passwordInput = document.getElementById('password');
       const passwordToggle = document.getElementById('password-toggle');
+
+      const formError = document.getElementById('form-error');
+      const formErrorTitle = document.getElementById('form-error-title');
+      const formErrorText = document.getElementById('form-error-text');
+      const formErrorActions = document.getElementById('form-error-actions');
 
       // ---- パスワード表示切り替え ----
       passwordToggle.addEventListener('click', () => {
@@ -116,10 +123,92 @@
         }
       }
 
+      // 見出し・説明・（あれば）次の行き先ボタン、の3点セットで出す。
+      // 「何が起きたか」と「どうすればよいか」を分けて置くのが要点。
+      function showFormError({ title, text, action }) {
+        formErrorTitle.textContent = title;
+        formErrorText.textContent = text;
+
+        formErrorActions.replaceChildren();
+        if (action) {
+          const link = document.createElement('a');
+          link.className = 'error-action';
+          link.href = action.href;
+          link.textContent = action.label;
+          formErrorActions.appendChild(link);
+          formErrorActions.hidden = false;
+        } else {
+          formErrorActions.hidden = true;
+        }
+
+        formError.hidden = false;
+        formError.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        formError.focus();
+      }
+
       function clearAllErrors() {
         ['name', 'email', 'password'].forEach((f) => setFieldError(f, null));
         formError.hidden = true;
-        formError.textContent = '';
+        formErrorTitle.textContent = '';
+        formErrorText.textContent = '';
+        formErrorActions.replaceChildren();
+        formErrorActions.hidden = true;
+      }
+
+      // サーバー／通信のエラーを、そのまま読んで意味の通る日本語に置き換える。
+      // 判断材料は err.code（サーバーが付ける識別子）と HTTP ステータス。
+      function toFriendlyMessage(err) {
+        const code = err?.code;
+        const status = err?.status;
+
+        if (code === 'EMAIL_ALREADY_REGISTERED') {
+          return {
+            title: 'このメールアドレスは、すでに登録されています',
+            text: '以前に、このメールアドレスでアカウントをお作りになっています。'
+                + '新しく登録しなくても、そのままログインしてお使いいただけます。',
+            action: { label: 'ログインの画面へ進む', href: 'login.html' },
+            focusField: 'email',
+            fieldMessage: 'すでに登録されているメールアドレスです。',
+          };
+        }
+
+        if (code === 'NETWORK_ERROR') {
+          return {
+            title: 'インターネットにつながりませんでした',
+            text: 'お手数ですが、Wi-Fiや電波の状態をお確かめのうえ、'
+                + 'もう一度「登録する」を押してください。',
+          };
+        }
+
+        if (code === 'RATE_LIMITED' || status === 429) {
+          return {
+            title: '少し時間をおいてからお試しください',
+            text: '短い間に何度も登録をお試しになったため、'
+                + 'ただいま受け付けできません。5分ほどたってから、もう一度お願いします。',
+          };
+        }
+
+        if (code === 'VALIDATION_ERROR') {
+          return {
+            title: '入力の内容をご確認ください',
+            text: err.message,
+            focusField: err.field,
+            fieldMessage: err.message,
+          };
+        }
+
+        if (typeof status === 'number' && status >= 500) {
+          return {
+            title: 'ただいま登録の受け付けができません',
+            text: 'こちらの不具合の可能性があります。'
+                + '恐れ入りますが、しばらくたってからもう一度お試しください。',
+          };
+        }
+
+        return {
+          title: '登録できませんでした',
+          text: err?.message || '恐れ入りますが、もう一度お試しください。',
+        };
       }
 
       // 入力を直したらそのフィールドのエラーを消す
@@ -137,7 +226,6 @@
         clearAllErrors();
 
         const fd = new FormData(form);
-        // ★ 修正: 欄が無い場合に null.trim() で落ちないよう ?? '' で保護
         const payload = {
           name: (fd.get('name') ?? '').trim(),
           email: (fd.get('email') ?? '').trim(),
@@ -161,8 +249,7 @@
           }
         }
         if (roleError) {
-          formError.textContent = roleError;
-          formError.hidden = false;
+          showFormError({ title: '入力の内容をご確認ください', text: roleError });
         }
         if (firstInvalid || roleError) {
           firstInvalid?.focus();
@@ -188,9 +275,13 @@
           }
           // 遷移するのでボタンは戻さない
         } catch (err) {
-          handleApiError(err, '登録に失敗しました。');
-          formError.textContent = err?.message || '登録に失敗しました。';
-          formError.hidden = false;
+          // トーストは数秒で消えてしまうため、失敗時は画面に残る表示のみにする
+          const info = toFriendlyMessage(err);
+          if (info.focusField && info.fieldMessage) {
+            setFieldError(info.focusField, info.fieldMessage);
+          }
+          showFormError(info);
+
           submitting = false;
           submitBtn.disabled = false;
           submitBtn.textContent = '登録する';
