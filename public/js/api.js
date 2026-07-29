@@ -34,6 +34,22 @@ const Session = {
   },
 };
 
+// ------------------------------------------------------------
+// アプリ共通のエラー型
+// code / status を持たせることで、画面側が「文言の一致」ではなく
+// 「意味」で分岐できるようにする。
+// ------------------------------------------------------------
+class ApiError extends Error {
+  constructor(message, { code = null, status = null, field = null, cause = null } = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+    this.field = field;
+    this.cause = cause;
+  }
+}
+
 async function apiRequest(path, { method = 'GET', body, auth = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth) {
@@ -41,11 +57,22 @@ async function apiRequest(path, { method = 'GET', body, auth = true } = {}) {
     if (token) headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${window.APP_CONFIG.API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${window.APP_CONFIG.API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (networkError) {
+    // fetch がここで失敗するのは「サーバーに届かなかった」ときだけ。
+    // ブラウザ既定の "Failed to fetch" をそのまま画面に出さない。
+    console.error('[api] 通信失敗:', path, networkError);
+    throw new ApiError(
+      'サーバーとの通信ができませんでした。',
+      { code: 'NETWORK_ERROR', cause: networkError }
+    );
+  }
 
   let data = null;
   try {
@@ -63,7 +90,11 @@ async function apiRequest(path, { method = 'GET', body, auth = true } = {}) {
       }
     }
     const message = data?.error || `エラーが発生しました（${res.status}）`;
-    throw new Error(message);
+    throw new ApiError(message, {
+      code: data?.code || null,
+      status: res.status,
+      field: data?.field || null,
+    });
   }
 
   return data;
