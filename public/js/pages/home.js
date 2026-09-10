@@ -26,11 +26,40 @@ document.getElementById('today-label').textContent = new Date().toLocaleDateStri
 
 renderBottomNav('home');
 renderRoleBanner();
-loadTodaySchedules();
 setupPushToggle();
 
-// 30秒ごとに最新状態を再取得し、服薬時刻になった項目を音声案内する
-setInterval(loadTodaySchedules, 30000);
+// 失敗したら間隔を後退させ、タブが非表示の間は止める
+let pollTimer = null;
+let pollFailures = 0;
+
+function scheduleNextPoll() {
+  clearTimeout(pollTimer);
+  if (document.hidden) return;
+  const base = 30000;
+  const delay = Math.min(base * 2 ** pollFailures, 5 * 60 * 1000); // 最大5分
+  pollTimer = setTimeout(runPoll, delay);
+}
+
+async function runPoll() {
+  try {
+    await loadTodaySchedules();
+    pollFailures = 0;
+  } catch {
+    pollFailures = Math.min(pollFailures + 1, 4);
+  }
+  scheduleNextPoll();
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearTimeout(pollTimer);
+  } else {
+    pollFailures = 0;
+    runPoll();
+  }
+});
+
+runPoll();
 
 function renderRoleBanner() {
   const banner = document.getElementById('role-banner');
@@ -75,6 +104,7 @@ async function loadTodaySchedules() {
   } catch (err) {
     container.innerHTML = `<p class="text-muted">読み込みに失敗しました。再読み込みしてください。</p>`;
     console.error(err);
+    throw err; // ポーリング側でリトライ間隔を後退させるために再送出する
   }
 }
 
