@@ -1,0 +1,48 @@
+<!--
+  Supabase ダッシュボード > Authentication > Emails > Templates > 「Confirm sign up」
+  Subject: 【電子お薬手帳】メールアドレスの確認をお願いします
+  Body   : このコメントの下の <div> 以下をすべて貼り付ける
+
+  ・{{ .SiteURL }} は Authentication > URL Configuration の Site URL（末尾に / を付けない）
+  ・リンク先のページは「開いただけ」では確認しない作りなので、
+    メールのセキュリティ機能に先読みされても使用済みにならない
+  ・{{ .Data.name }} など、登録時にユーザーが自由入力した値は差し込まない
+    （他人のアドレスで登録され、名前欄に偽の案内文を入れられるのを防ぐ）
+  ・「1時間」は Email OTP Expiration（既定 3600 秒）に合わせた表記。設定を変えたらここも直す
+-->
+<div style="margin:0;padding:24px 16px;background:#fbf7f0;font-family:'Hiragino Sans','Noto Sans JP','Meiryo',sans-serif;color:#33312e;">
+  <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e3d8c4;border-radius:16px;padding:28px 24px;">
+    <p style="margin:0 0 8px;font-size:14px;color:#6b6660;">電子お薬手帳</p>
+    <h1 style="margin:0 0 20px;font-size:22px;line-height:1.5;color:#2c4a52;">メールアドレスの確認</h1>
+
+    <p style="margin:0 0 20px;font-size:17px;line-height:1.9;">
+      ご登録ありがとうございます。<br>下のボタンを押して、確認を完了してください。
+    </p>
+
+    <!-- ボタン（多くのメールアプリで崩れないよう table で作る） -->
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 28px;">
+      <tr>
+        <td align="center" style="border-radius:12px;background:#d97d54;">
+          <a href="{{ .SiteURL }}/verify-email.html?token_hash={{ .TokenHash }}"
+             style="display:block;padding:18px 12px;font-size:20px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">
+            確認を完了する
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0 0 10px;font-size:15px;line-height:1.8;color:#33312e;">
+      ボタンがうまく使えないときは、アプリの画面に次の<strong>6桁の数字</strong>を入力してください。
+    </p>
+    <p style="margin:0 0 20px;padding:16px 8px;background:#f4ecdd;border-radius:12px;text-align:center;font-size:32px;font-weight:700;letter-spacing:8px;color:#1d3338;">
+      {{ .Token }}
+    </p>
+
+    <p style="margin:0 0 8px;font-size:15px;line-height:1.8;">
+      このメールの有効期限は<strong>1時間</strong>です。
+    </p>
+    <p style="margin:0;font-size:15px;line-height:1.8;color:#6b6660;">
+      お心当たりがない場合は、このメールを破棄してください。<br>このメールは送信専用のため、返信はできません。
+    </p>
+  </div>
+</div>
