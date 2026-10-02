@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2" />
+<title>メールアドレスの確認 - 電子お薬手帳</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#2C4A52" />
+<link rel="stylesheet" href="css/base.css" />
+<link rel="stylesheet" href="css/auth.css" />
+</head>
+<body>
+  <main class="auth-shell">
+    <div class="auth-card">
+      <a href="index.html" class="auth-back" aria-label="表紙に戻る">←</a>
+
+      <!-- 共通のお知らせ -->
+      <div id="form-error" class="form-error" role="alert" tabindex="-1" hidden>
+        <span class="form-error__icon" aria-hidden="true">!</span>
+        <p class="form-error__title" id="form-error-title"></p>
+        <p class="form-error__text" id="form-error-text"></p>
+        <div class="form-error__actions" id="form-error-actions" hidden></div>
+      </div>
+      <div id="form-success" class="form-notice form-notice--success" role="status" hidden>
+        <p class="form-notice__title" id="form-success-title"></p>
+        <p class="form-notice__text" id="form-success-text"></p>
+      </div>
+
+      <!-- ===== メールのボタンから開いた場合 ===== -->
+      <section id="link-mode" hidden>
+        <h1 class="auth-title">メールアドレスの確認</h1>
+        <p class="text-muted">下のボタンを押すと、確認が完了します。</p>
+        <button type="button" class="btn btn-accent verify-link-btn" id="link-confirm-btn">確認を完了する</button>
+      </section>
+
+      <!-- ===== 確認コードを入力する場合 ===== -->
+      <section id="code-mode" hidden>
+        <h1 class="auth-title">メールをご確認ください</h1>
+
+        <div id="from-login-notice" class="form-notice" hidden>
+          <p class="form-notice__title">メールアドレスの確認が、まだ済んでいません</p>
+          <p class="form-notice__text">
+            登録のときに届いたメールの「確認を完了する」ボタンを押すか、メールに書かれた確認コードを入力してください。
+            期限が切れている場合は、下の「確認のメールをもう一度送る」を押してください。
+          </p>
+        </div>
+
+        <p class="text-muted" id="lead-known" hidden>
+          <strong id="email-display" class="verify-email-address"></strong><br />
+          あてに、確認のメールをお送りしました。
+        </p>
+        <p class="text-muted" id="lead-unknown" hidden>
+          ご登録のメールアドレスと、メールに書かれた確認コードを入力してください。
+        </p>
+
+        <p class="verify-steps">
+          メールの<strong>「確認を完了する」ボタン</strong>を押すと、それだけで確認が終わります。<br />
+          ボタンがうまく使えないときは、メールに書かれた<strong>6桁の数字</strong>を下に入力してください。
+        </p>
+
+        <form id="verify-form" class="stack" novalidate>
+          <!-- 確認待ちのアドレスが分からないときだけ表示する -->
+          <div class="field" id="email-field" hidden>
+            <label for="email">メールアドレス</label>
+            <input type="email" id="email" name="email" autocomplete="email"
+                   placeholder="example@mail.com" aria-describedby="email-error" />
+            <span class="field-error" id="email-error" hidden></span>
+          </div>
+
+          <div class="field">
+            <label for="token">確認コード（6桁の数字）</label>
+            <input type="text" id="token" name="token" class="code-input"
+                   inputmode="numeric" autocomplete="one-time-code"
+                   maxlength="12" placeholder="123456"
+                   aria-describedby="token-error" />
+            <span class="field-error" id="token-error" hidden></span>
+          </div>
+
+          <button type="submit" class="btn btn-accent" id="submit-btn">確認する</button>
+        </form>
+
+        <section class="verify-help" aria-labelledby="verify-help-title">
+          <h2 class="verify-help__title" id="verify-help-title">メールが届かないときは</h2>
+          <p class="text-sm">
+            届くまで数分かかることがあります。「迷惑メール」のフォルダも、ご確認ください。
+          </p>
+          <p class="text-sm mail-from" data-mail-from-row hidden>
+            送信元：<strong data-mail-from></strong>
+          </p>
+          <p class="text-sm">
+            携帯会社のメール（docomo・au・SoftBank など）は、受信の設定によっては届かないことがあります。
+            上のアドレスからのメールを受け取れるように設定するか、ご家族にご相談ください。
+          </p>
+          <button type="button" class="btn btn-outline" id="resend-btn">確認のメールをもう一度送る</button>
+        </section>
+
+        <p class="auth-switch">
+          メールアドレスを間違えた方は <a href="signup.html">新規登録をやり直す</a><br />
+          確認が済んでいる方は <a href="login.html">ログイン</a>
+        </p>
+      </section>
+    </div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/validate.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    (() => {
+      'use strict';
+
+      const RESEND_COOLDOWN_SEC = 60; // Supabase の既定（同じ宛先へは60秒に1回）に合わせる
+
+      const formError = document.getElementById('form-error');
+      const formErrorTitle = document.getElementById('form-error-title');
+      const formErrorText = document.getElementById('form-error-text');
+      const formErrorActions = document.getElementById('form-error-actions');
+      const formSuccess = document.getElementById('form-success');
+      const formSuccessTitle = document.getElementById('form-success-title');
+      const formSuccessText = document.getElementById('form-success-text');
+
+      // ---- お知らせ表示 ----
+      function showFormError(title, text, actions = []) {
+        formSuccess.hidden = true;
+        formErrorTitle.textContent = title;
+        formErrorText.textContent = text;
+        formErrorActions.replaceChildren();
+        actions.forEach(({ label, href }) => {
+          const a = document.createElement('a');
+          a.className = 'error-action';
+          a.href = href;
+          a.textContent = label;
+          formErrorActions.appendChild(a);
+        });
+        formErrorActions.hidden = actions.length === 0;
+        formError.hidden = false;
+        formError.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        formError.focus();
+      }
+
+      function showFormSuccess(title, text) {
+        formError.hidden = true;
+        formSuccessTitle.textContent = title;
+        formSuccessText.textContent = text;
+        formSuccess.hidden = false;
+      }
+
+      function hideMessages() {
+        formError.hidden = true;
+        formSuccess.hidden = true;
+      }
+
+      function onVerified(result) {
+        PendingVerification.clear();
+        Session.set(result.session, result.user, result.profile);
+        showToast('メールアドレスの確認ができました。', 'success');
+        setTimeout(() => (location.href = 'home.html'), 600);
+      }
+
+      function commonErrorMessage(err, retryLabel) {
+        if (err?.code === 'NETWORK_ERROR') {
+          return ['インターネットにつながりませんでした', `Wi-Fiや電波の状態をお確かめのうえ、もう一度「${retryLabel}」を押してください。`];
+        }
+        if (err?.code === 'RATE_LIMITED' || err?.status === 429) {
+          return ['少し時間をおいてからお試しください', err.message];
+        }
+        return ['確認できませんでした', err?.message || 'もう一度お試しください。'];
+      }
+
+      // ========================================================
+      //  メールのボタンから開いた場合（token_hash あり）
+      //  ※ 開いただけでは確認しない。メールのセキュリティ機能が
+      //     リンクを先読みしても、使用済みにならないようにするため。
+      // ========================================================
+      const tokenHash = takeTokenHashFromUrl();
+
+      if (tokenHash) {
+        document.getElementById('link-mode').hidden = false;
+        const linkBtn = document.getElementById('link-confirm-btn');
+
+        linkBtn.addEventListener('click', async () => {
+          hideMessages();
+          linkBtn.disabled = true;
+          linkBtn.textContent = '確認しています…';
+          try {
+            onVerified(await Api.verifyEmail({ token_hash: tokenHash }));
+          } catch (err) {
+            if (err?.code === 'OTP_INVALID') {
+              document.getElementById('link-mode').hidden = true;
+              showFormError(
+                'このボタンは、もう使えません',
+                'すでに確認が済んでいる場合は、そのままログインできます。'
+                  + 'まだの場合は、確認のメールをもう一度送ってください。',
+                [
+                  { label: 'ログインする', href: 'login.html' },
+                  { label: 'メールを送り直す', href: 'verify-email.html' },
+                ]
+              );
+              return;
+            }
+            showFormError(...commonErrorMessage(err, '確認を完了する'));
+            linkBtn.disabled = false;
+            linkBtn.textContent = '確認を完了する';
+          }
+        });
+        return;
+      }
+
+      // ========================================================
+      //  確認コードを入力する場合
+      // ========================================================
+      if (Session.isLoggedIn()) {
+        location.href = 'home.html';
+        return;
+      }
+
+      document.getElementById('code-mode').hidden = false;
+      renderMailFrom();
+
+      const form = document.getElementById('verify-form');
+      const submitBtn = document.getElementById('submit-btn');
+      const resendBtn = document.getElementById('resend-btn');
+      const emailInput = document.getElementById('email');
+      const tokenInput = document.getElementById('token');
+
+      const pendingEmail = PendingVerification.get();
+      if (pendingEmail) {
+        document.getElementById('email-display').textContent = pendingEmail;
+        document.getElementById('lead-known').hidden = false;
+        emailInput.value = pendingEmail;
+      } else {
+        document.getElementById('lead-unknown').hidden = false;
+        document.getElementById('email-field').hidden = false;
+      }
+
+      if (new URLSearchParams(location.search).get('from') === 'login') {
+        document.getElementById('from-login-notice').hidden = false;
+      }
+
+      function normalizeOtp(value) {
+        return String(value ?? '')
+          .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0))
+          .replace(/[\s\-‐－ー]/g, '');
+      }
+
+      function currentEmail() {
+        return (pendingEmail || emailInput.value).trim().toLowerCase();
+      }
+
+      function setFieldError(fieldName, message) {
+        const input = form.elements[fieldName];
+        const errorEl = document.getElementById(`${fieldName}-error`);
+        if (!errorEl) return;
+        errorEl.textContent = message || '';
+        errorEl.hidden = !message;
+        if (message) input?.setAttribute('aria-invalid', 'true');
+        else input?.removeAttribute('aria-invalid');
+      }
+
+      function clearMessages() {
+        ['email', 'token'].forEach((f) => setFieldError(f, null));
+        hideMessages();
+      }
+
+      ['email', 'token'].forEach((f) => {
+        form.elements[f].addEventListener('input', () => setFieldError(f, null));
+      });
+
+      // ---- 確認コードの送信 ----
+      let submitting = false;
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (submitting) return;
+        clearMessages();
+
+        const email = currentEmail();
+        const token = normalizeOtp(tokenInput.value);
+
+        let firstInvalid = null;
+        if (!pendingEmail) {
+          const emailError = Validate.email(email);
+          if (emailError) {
+            setFieldError('email', emailError);
+            firstInvalid = emailInput;
+          }
+        }
+        if (!token) {
+          setFieldError('token', '確認コードを入力してください。');
+          firstInvalid = firstInvalid || tokenInput;
+        } else if (!/^\d{6,10}$/.test(token)) {
+          setFieldError('token', '確認コードは、メールに書かれた数字（6桁）を入力してください。');
+          firstInvalid = firstInvalid || tokenInput;
+        }
+        if (firstInvalid) {
+          firstInvalid.focus();
+          return;
+        }
+
+        submitting = true;
+        submitBtn.disabled = true;
+        submitBtn.textContent = '確認しています…';
+
+        try {
+          onVerified(await Api.verifyEmail({ email, token }));
+          // 遷移するのでボタンは戻さない
+        } catch (err) {
+          if (err?.code === 'OTP_INVALID') {
+            setFieldError('token', err.message);
+            showFormError(
+              '確認コードが正しくないか、有効期限が切れています',
+              'メールの数字をもう一度お確かめください。'
+                + '期限が切れている場合は、下の「確認のメールをもう一度送る」を押してください。'
+            );
+          } else if (err?.code === 'VALIDATION_ERROR') {
+            if (err.field) setFieldError(err.field, err.message);
+            showFormError('入力の内容をご確認ください', err.message);
+          } else {
+            showFormError(...commonErrorMessage(err, '確認する'));
+          }
+          submitting = false;
+          submitBtn.disabled = false;
+          submitBtn.textContent = '確認する';
+        }
+      });
+
+      // ---- 確認メールの再送 ----
+      let cooldownTimer = null;
+      const RESEND_LABEL = '確認のメールをもう一度送る';
+
+      function startCooldown(seconds) {
+        clearInterval(cooldownTimer);
+        let remaining = seconds;
+        resendBtn.disabled = true;
+        resendBtn.textContent = `もう一度送れるまで ${remaining} 秒`;
+        cooldownTimer = setInterval(() => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            clearInterval(cooldownTimer);
+            resendBtn.disabled = false;
+            resendBtn.textContent = RESEND_LABEL;
+          } else {
+            resendBtn.textContent = `もう一度送れるまで ${remaining} 秒`;
+          }
+        }, 1000);
+      }
+
+      resendBtn.addEventListener('click', async () => {
+        clearMessages();
+
+        const email = currentEmail();
+        const emailError = Validate.email(email);
+        if (emailError) {
+          setFieldError('email', emailError);
+          emailInput.focus();
+          return;
+        }
+
+        resendBtn.disabled = true;
+        resendBtn.textContent = '送っています…';
+
+        try {
+          await Api.resendVerification(email);
+          showFormSuccess(
+            '確認のメールをお送りしました',
+            '新しく届いたメールのボタンを押すか、新しい確認コードを入力してください。前に届いたメールは使えなくなることがあります。'
+          );
+          tokenInput.value = '';
+          startCooldown(RESEND_COOLDOWN_SEC);
+        } catch (err) {
+          if (err?.code === 'RATE_LIMITED' || err?.status === 429) {
+            showFormError('少し時間をおいてからお試しください', err.message);
+            startCooldown(RESEND_COOLDOWN_SEC);
+            return;
+          }
+          if (err?.code === 'NETWORK_ERROR') {
+            showFormError('インターネットにつながりませんでした', 'Wi-Fiや電波の状態をお確かめのうえ、もう一度お試しください。');
+          } else {
+            showFormError('メールを送れませんでした', err?.message || 'しばらくたってから、もう一度お試しください。');
+          }
+          resendBtn.disabled = false;
+          resendBtn.textContent = RESEND_LABEL;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

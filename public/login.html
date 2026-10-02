@@ -42,6 +42,8 @@
         <button type="submit" class="btn btn-accent" id="submit-btn">ログインする</button>
       </form>
 
+      <p class="auth-forgot"><a href="reset-password.html" id="forgot-link">パスワードを忘れた方はこちら</a></p>
+
       <p class="auth-switch">アカウントをお持ちでない方は <a href="signup.html">新規登録</a></p>
     </div>
   </main>
@@ -88,6 +90,14 @@
         form.elements[f].addEventListener('input', () => setFieldError(f, null));
       });
 
+      // 入力済みのメールアドレスを、パスワード再設定画面へ引き継ぐ（入力し直しの手間を省く）
+      document.getElementById('forgot-link').addEventListener('click', () => {
+        const email = form.elements.email.value.trim().toLowerCase();
+        try {
+          if (email) sessionStorage.setItem('okusuri_techo_reset_email', email);
+        } catch { /* 保存できなくても画面で入力できる */ }
+      });
+
       let submitting = false;
 
       form.addEventListener('submit', async (e) => {
@@ -129,6 +139,12 @@
           showToast('ログインしました。', 'success');
           setTimeout(() => (location.href = 'home.html'), 400);
         } catch (err) {
+          // メール確認が済んでいない場合は、確認コード入力画面へ案内する
+          if (err?.code === 'EMAIL_NOT_CONFIRMED') {
+            PendingVerification.set(payload.email.toLowerCase());
+            location.href = 'verify-email.html?from=login';
+            return;
+          }
           handleApiError(err, 'ログインに失敗しました。');
           formError.textContent = err?.message || 'ログインに失敗しました。';
           formError.hidden = false;
