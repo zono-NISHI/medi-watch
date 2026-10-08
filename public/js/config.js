@@ -12,5 +12,5 @@ window.APP_CONFIG = {
 
   // 確認メール・パスワード再設定メールの送信元アドレス（画面の「届かないときは」に表示する）。
   // Supabase の SMTP Settings の Sender email と同じ値にする。空文字なら表示しない。
-  MAIL_FROM: '',
+  MAIL_FROM: 'a.sendemail7@gmail.com',
 };
