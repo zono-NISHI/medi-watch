@@ -5,6 +5,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
 const webpush = require('web-push');
+const { supabaseAdmin } = require('../supabase/supabase');
 const { VAPID_PUBLIC_KEY, vapidConfigured } = require('../services/notificationService');
 
 const router = express.Router();
@@ -33,6 +34,17 @@ router.post(
     if (!endpoint || !keys?.p256dh || !keys?.auth) {
       return res.status(400).json({ error: 'プッシュ購読情報が不正です。' });
     }
+
+    // 1つの端末（endpoint）は、最後にログインした1人の利用者だけに結び付ける。
+    // 同じブラウザで以前ログインしていた別の利用者の登録が残っていると、
+    // その人宛ての通知（服薬リマインドなど）がこの端末に届いてしまうため。
+    // 他人の行は RLS で消せないので、ここだけ supabaseAdmin を使う。
+    const { error: cleanupErr } = await supabaseAdmin
+      .from('push_subscriptions')
+      .delete()
+      .eq('endpoint', endpoint)
+      .neq('user_id', req.user.id);
+    if (cleanupErr) console.error('[push/subscribe] 他の利用者の登録の削除に失敗:', cleanupErr);
 
     const { data, error } = await req.supabase
       .from('push_subscriptions')

@@ -73,20 +73,29 @@ const PushSetup = (() => {
       return false;
     }
 
+    // どの段階で失敗したかを画面に出す（原因の切り分け用）
+    let step = 'Service Worker の登録';
     try {
       const reg = await navigator.serviceWorker.register('sw.js');
       await navigator.serviceWorker.ready;
-      const { publicKey } = await Api.getVapidPublicKey();
 
+      step = 'サーバーから公開鍵（VAPID）の取得';
+      const { publicKey } = await Api.getVapidPublicKey();
+      if (!publicKey || !/^B[A-Za-z0-9_-]{86}$/.test(publicKey.trim())) {
+        throw new Error(`公開鍵の形式が正しくありません（先頭: ${String(publicKey).slice(0, 12)}…）`);
+      }
+
+      step = 'ブラウザでのプッシュ購読';
       // 既に購読していればそれをサーバーに登録し直す（端末の再登録・DB から消えた場合の復旧）
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey),
+          applicationServerKey: urlBase64ToUint8Array(publicKey.trim()),
         });
       }
 
+      step = 'サーバーへの端末登録';
       const subJson = sub.toJSON();
       await Api.subscribePush({
         endpoint: subJson.endpoint,
@@ -96,21 +105,57 @@ const PushSetup = (() => {
       showToast('プッシュ通知を有効にしました。', 'success');
       return true;
     } catch (err) {
-      console.error('[push] 購読に失敗:', err);
-      const msg = err?.status === 503
-        ? 'サーバーで通知が設定されていません（VAPID 鍵が未設定）。'
-        : '通知の設定に失敗しました。';
-      showToast(msg, 'error', 8000);
+      console.error('[push] 失敗:', step, err);
+      const detail = err?.status === 503
+        ? 'サーバーに VAPID 鍵が設定されていません。'
+        : `${err?.name && err.name !== 'Error' ? err.name + ': ' : ''}${err?.message || err}`;
+      showToast(`通知の設定に失敗しました（${step}）。${detail}`, 'error', 15000);
       return false;
     }
   }
 
   // 既に有効かどうか（ボタン表示の切り替え用）
-  async function isEnabled() {
-    if (unsupportedReason() || Notification.permission !== 'granted') return false;
+  // ブラウザ側の購読（端末）を取得する。無ければ null
+  async function currentSubscription() {
+    if (unsupportedReason() || Notification.permission !== 'granted') return null;
     const reg = await navigator.serviceWorker.getRegistration();
-    return !!(reg && (await reg.pushManager.getSubscription()));
+    return reg ? reg.pushManager.getSubscription() : null;
   }
 
-  return { enable, isEnabled, unsupportedReason };
+  // 「この端末」を「いまログインしている利用者」に結び付け直す。
+  // ブラウザの購読は端末（ブラウザ）ごとに1つで、アカウントとは無関係に残る。
+  // そのため、同じブラウザで別のアカウントにログインした場合も、ここで登録し直す。
+  // 成功したら true（＝この利用者で通知が有効）。画面を開いたときに黙って呼ぶ。
+  async function syncCurrentUser() {
+    try {
+      const sub = await currentSubscription();
+      if (!sub) return false;
+      const subJson = sub.toJSON();
+      await Api.subscribePush({
+        endpoint: subJson.endpoint,
+        keys: subJson.keys,
+        device_name: navigator.userAgent.slice(0, 60),
+      });
+      return true;
+    } catch (err) {
+      console.warn('[push] 端末の再登録に失敗:', err);
+      return false;
+    }
+  }
+
+  // ログアウト時に呼ぶ。この端末と、ログアウトする利用者の結び付きをサーバーから消す
+  // （消さないと、ログアウト後もその利用者宛ての通知がこの端末に届き続ける）
+  async function unlinkCurrentUser() {
+    try {
+      const sub = await currentSubscription();
+      if (sub) await Api.unsubscribePush(sub.endpoint);
+    } catch (err) {
+      console.warn('[push] 端末の登録解除に失敗:', err);
+    }
+  }
+
+  // 互換用（ボタン表示の切り替え）。サーバー側の登録まで確認する
+  const isEnabled = syncCurrentUser;
+
+  return { enable, isEnabled, syncCurrentUser, unlinkCurrentUser, unsupportedReason };
 })();

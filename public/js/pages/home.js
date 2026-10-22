@@ -27,6 +27,7 @@ document.getElementById('today-label').textContent = new Date().toLocaleDateStri
 renderBottomNav('home');
 renderRoleBanner();
 setupPushToggle();
+PushSetup.syncCurrentUser(); // この端末を、いまログインしている利用者に結び付け直す
 
 // 失敗したら間隔を後退させ、タブが非表示の間は止める
 let pollTimer = null;
