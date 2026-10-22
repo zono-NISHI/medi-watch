@@ -83,7 +83,10 @@ async function ensureTodayLogs() {
 //    通知が永久に送られなくなる。そこで「リマインド時刻を過ぎていて、服薬時刻 + 30分より前で、
 //    まだ送っていない」ものを送る。送信済みかどうかは notification_logs で判定する。
 async function sendDueReminders() {
-  if (!vapidConfigured) return;
+  if (!vapidConfigured) {
+    console.warn('[cron] VAPID 鍵が未設定のため、リマインドを送れません。');
+    return;
+  }
 
   const now = new Date();
   const { dateStr: today } = jstToday(now);
@@ -130,7 +133,10 @@ async function sendDueReminders() {
       .eq('user_id', log.patient_id);
 
     // 端末が未登録なら記録せず次回また確認する（途中で通知を有効にした場合に間に合うように）
-    if (!subs || subs.length === 0) continue;
+    if (!subs || subs.length === 0) {
+      console.log('[cron] リマインド対象だが端末が未登録:', log.id);
+      continue;
+    }
 
     const medName = log.medication_schedules?.medications?.name || 'お薬';
     let sentCount = 0;
@@ -157,6 +163,7 @@ async function sendDueReminders() {
       }
     }
 
+    console.log(`[cron] リマインド送信: log=${log.id} 成功 ${sentCount}/${subs.length}`);
     // 1回でも送れたら記録する（同じ予定へ毎分送らないため）
     if (sentCount > 0) {
       await supabaseAdmin.from('notification_logs').insert({
