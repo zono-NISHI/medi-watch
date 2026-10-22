@@ -100,6 +100,7 @@ document.getElementById('status-notif-btn').addEventListener('click', async () =
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
   if (!confirm('ログアウトしますか？')) return;
+  await PushSetup.unlinkCurrentUser(); // ログアウト後にこの端末へ通知が届かないようにする
   try { await Api.logout(); } catch {}
   Session.clear();
   location.href = 'login.html';
