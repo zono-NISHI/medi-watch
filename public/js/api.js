@@ -275,4 +275,6 @@ const Api = {
   getVapidPublicKey: () => apiRequest('/push/vapid-public-key', { auth: false }),
   subscribePush: (payload) => apiRequest('/push/subscribe', { method: 'POST', body: payload }),
   unsubscribePush: (endpoint) => apiRequest('/push/subscribe', { method: 'DELETE', body: { endpoint } }),
+  getPushStatus: () => apiRequest('/push/status'),
+  sendTestPush: () => apiRequest('/push/test', { method: 'POST' }),
 };
