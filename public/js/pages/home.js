@@ -409,42 +409,7 @@ async function viewVideo(logId) {
   }
 }
 
-// ---- プッシュ通知の購読設定 ----
+// ---- プッシュ通知の購読設定（処理は js/push.js の PushSetup にまとめている） ----
 function setupPushToggle() {
-  document.getElementById('notif-toggle-btn').addEventListener('click', async () => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      showToast('お使いのブラウザは通知に対応していません。', 'error');
-      return;
-    }
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        showToast('通知が許可されませんでした。', 'info');
-        return;
-      }
-      const reg = await navigator.serviceWorker.register('sw.js');
-      const { publicKey } = await Api.getVapidPublicKey();
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-      const subJson = sub.toJSON();
-      await Api.subscribePush({
-        endpoint: subJson.endpoint,
-        keys: subJson.keys,
-        device_name: navigator.userAgent.slice(0, 60),
-      });
-      showToast('通知を有効にしました。', 'success');
-    } catch (err) {
-      console.error(err);
-      showToast('通知の設定に失敗しました。', 'error');
-    }
-  });
-}
-
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+  document.getElementById('notif-toggle-btn').addEventListener('click', () => PushSetup.enable());
 }

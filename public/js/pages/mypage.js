@@ -43,44 +43,19 @@ profileForm.addEventListener('submit', async (e) => {
   }
 });
 
-document.getElementById('enable-notif-btn').addEventListener('click', async () => {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    showToast('このブラウザは通知に対応していません。', 'error');
-    return;
-  }
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      showToast('通知が許可されませんでした。', 'info');
-      return;
-    }
-    const reg = await navigator.serviceWorker.register('sw.js');
-    const { publicKey } = await Api.getVapidPublicKey();
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
-    });
-    const subJson = sub.toJSON();
-    await Api.subscribePush({
-      endpoint: subJson.endpoint,
-      keys: subJson.keys,
-      device_name: navigator.userAgent.slice(0, 60),
-    });
-    showToast('プッシュ通知を有効にしました。', 'success');
-    document.getElementById('enable-notif-btn').textContent = '通知は有効です ✓';
-    document.getElementById('enable-notif-btn').disabled = true;
-  } catch (err) {
-    console.error(err);
-    showToast('通知の設定に失敗しました。', 'error');
-  }
-});
+// ---- プッシュ通知（処理は js/push.js の PushSetup にまとめている） ----
+const notifBtn = document.getElementById('enable-notif-btn');
 
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+function markNotifEnabled() {
+  notifBtn.textContent = '通知は有効です ✓';
+  notifBtn.disabled = true;
 }
+
+PushSetup.isEnabled().then((on) => { if (on) markNotifEnabled(); }).catch(() => {});
+
+notifBtn.addEventListener('click', async () => {
+  if (await PushSetup.enable()) markNotifEnabled();
+});
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
   if (!confirm('ログアウトしますか？')) return;

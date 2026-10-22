@@ -27,7 +27,10 @@ self.addEventListener('push', (event) => {
     icon: 'assets/icon-192.png',
     badge: 'assets/icon-192.png',
     data: { logId: payload.logId, type: payload.type },
-    vibrate: [200, 100, 200],
+    vibrate: [300, 100, 300, 100, 300],
+    tag: payload.logId ? `log-${payload.logId}` : undefined, // 同じ予定の通知は1件にまとめる
+    renotify: true,
+    requireInteraction: true, // 対応端末（PC 等）では、タップするまで通知を消さない
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

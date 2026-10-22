@@ -16,19 +16,27 @@ const { notifyCareGroup, vapidConfigured } = require('./notificationService');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MISSED_THRESHOLD_MINUTES = 30; // この分数を過ぎても未服薬なら「飲み忘れ」とみなす
 
-function todayDateString(now = new Date()) {
-  return now.toISOString().slice(0, 10); // YYYY-MM-DD (UTC基準。実運用ではJSTタイムゾーン考慮を推奨)
+// ---- 日本時間（JST）での日付計算 ----
+// Render などのサーバーは UTC で動くため、new Date() の日付・曜日・時刻をそのまま使うと
+// 9時間ずれる（例：8:00 の予定が 17:00 に通知される／朝 0〜9 時は前日扱いになる）。
+// 服薬時刻は利用者が日本時間で入力したものなので、必ず JST として扱う。
+const JST_OFFSET = '+09:00';
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+// JST での今日の日付（YYYY-MM-DD）と曜日（0=日曜）
+function jstToday(now = new Date()) {
+  const jst = new Date(now.getTime() + JST_OFFSET_MS);
+  return { dateStr: jst.toISOString().slice(0, 10), dow: jst.getUTCDay() };
 }
 
 function buildScheduledAt(dateStr, timeStr) {
-  // scheduled_time は 'HH:MM:SS' 形式
-  return new Date(`${dateStr}T${timeStr}`);
+  // scheduled_time は 'HH:MM:SS' 形式。日本時間として解釈する。
+  return new Date(`${dateStr}T${timeStr}${JST_OFFSET}`);
 }
 
 // 1. 本日分のスケジュールに対応するログをまだ持っていない患者分を作成する
 async function ensureTodayLogs() {
-  const today = todayDateString();
-  const dow = new Date().getDay(); // 0=日曜
+  const { dateStr: today, dow } = jstToday();
 
   const { data: schedules, error } = await supabaseAdmin
     .from('medication_schedules')
@@ -70,42 +78,64 @@ async function ensureTodayLogs() {
   }
 }
 
-// 2. リマインド時刻（scheduled_time の reminder_minutes 分前）になった患者へ通知
+// 2. リマインド時刻（scheduled_time の reminder_minutes 分前）を過ぎた患者へ通知
+//    「±30秒以内」だけを対象にすると、Render のスリープや cron の遅れで1分飛んだだけで
+//    通知が永久に送られなくなる。そこで「リマインド時刻を過ぎていて、服薬時刻 + 30分より前で、
+//    まだ送っていない」ものを送る。送信済みかどうかは notification_logs で判定する。
 async function sendDueReminders() {
   if (!vapidConfigured) return;
 
   const now = new Date();
-  const today = todayDateString(now);
+  const { dateStr: today } = jstToday(now);
 
   const { data: pendingLogs, error } = await supabaseAdmin
     .from('medication_logs')
     .select('id, scheduled_at, patient_id, medication_schedules(reminder_minutes, medications(name))')
     .eq('status', 'pending')
-    .gte('scheduled_at', `${today}T00:00:00`)
-    .lte('scheduled_at', `${today}T23:59:59`);
+    .gte('scheduled_at', `${today}T00:00:00${JST_OFFSET}`)
+    .lte('scheduled_at', `${today}T23:59:59${JST_OFFSET}`);
 
   if (error) {
     console.error('[cron] リマインド対象取得エラー:', error);
     return;
   }
 
-  for (const log of pendingLogs || []) {
+  const dueLogs = (pendingLogs || []).filter((log) => {
     const reminderMinutes = log.medication_schedules?.reminder_minutes ?? 5;
-    const scheduledAt = new Date(log.scheduled_at);
-    const reminderAt = new Date(scheduledAt.getTime() - reminderMinutes * 60 * 1000);
+    const scheduledAt = new Date(log.scheduled_at).getTime();
+    const reminderAt = scheduledAt - reminderMinutes * 60 * 1000;
+    const expireAt = scheduledAt + MISSED_THRESHOLD_MINUTES * 60 * 1000;
+    return now.getTime() >= reminderAt && now.getTime() < expireAt;
+  });
+  if (dueLogs.length === 0) return;
 
-    // cronは1分間隔なので、現在時刻がリマインド時刻の±30秒以内なら送信対象とする
-    const diffSec = Math.abs(now.getTime() - reminderAt.getTime()) / 1000;
-    if (diffSec > 30) continue;
+  // 送信済みのリマインドを除く
+  const { data: alreadySent, error: sentErr } = await supabaseAdmin
+    .from('notification_logs')
+    .select('log_id')
+    .eq('type', 'medication_reminder')
+    .in('log_id', dueLogs.map((l) => l.id));
+  if (sentErr) {
+    console.error('[cron] 送信済みリマインド確認エラー:', sentErr);
+    return;
+  }
+  const sentSet = new Set((alreadySent || []).map((n) => n.log_id));
+
+  for (const log of dueLogs) {
+    if (sentSet.has(log.id)) continue;
 
     const { data: subs } = await supabaseAdmin
       .from('push_subscriptions')
       .select('*')
       .eq('user_id', log.patient_id);
 
-    const medName = log.medication_schedules?.medications?.name || 'お薬';
+    // 端末が未登録なら記録せず次回また確認する（途中で通知を有効にした場合に間に合うように）
+    if (!subs || subs.length === 0) continue;
 
-    for (const sub of subs || []) {
+    const medName = log.medication_schedules?.medications?.name || 'お薬';
+    let sentCount = 0;
+
+    for (const sub of subs) {
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
@@ -114,13 +144,26 @@ async function sendDueReminders() {
             body: `まもなく「${medName}」を服用する時間です。`,
             logId: log.id,
             type: 'medication_reminder',
-          })
+          }),
+          { TTL: 30 * 60, urgency: 'high' } // 端末がオフラインでも30分間は配送を試みる
         );
+        sentCount += 1;
       } catch (err) {
         if (err.statusCode === 410 || err.statusCode === 404) {
           await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
+        } else {
+          console.error('[cron] リマインド送信失敗:', sub.id, err.statusCode, err.body || err.message);
         }
       }
+    }
+
+    // 1回でも送れたら記録する（同じ予定へ毎分送らないため）
+    if (sentCount > 0) {
+      await supabaseAdmin.from('notification_logs').insert({
+        log_id: log.id,
+        type: 'medication_reminder',
+        sent_to_user_ids: [log.patient_id],
+      });
     }
   }
 }
