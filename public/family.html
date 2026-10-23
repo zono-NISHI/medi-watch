@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=2" />
-<title>家族・見守り - 電子お薬手帳</title>
+<title>見守り - 電子お薬手帳</title>
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#2C4A52" />
 <link rel="stylesheet" href="css/base.css" />
@@ -13,34 +13,51 @@
   <main class="app-shell">
     <header class="topbar">
       <div class="topbar-icon" aria-hidden="true">家</div>
-      <div class="topbar-title" id="page-title">家族・見守り</div>
+      <div class="topbar-title" id="page-title">見守り</div>
     </header>
 
-    <section id="patient-section" class="stack" style="display:none;">
-      <div class="card card--warm">
-        <h2>家族を招待する</h2>
-        <p class="text-sm text-muted">招待コードをご家族にお伝えください。コードを入力するとあなたの服薬状況を見守ることができます。</p>
-        <div class="invite-code-box" id="invite-code-box">読み込み中…</div>
-        <button class="btn btn-outline btn--sm" id="create-group-btn" style="width:auto; display:none;">見守りグループを作成する</button>
-      </div>
+    <div id="family-sections" class="stack">
 
-      <h2>参加している家族</h2>
-      <div id="member-list" class="stack stack--tight"><p class="text-muted">読み込み中…</p></div>
-    </section>
+      <!-- ===== 見守る側：自分が見守っているご家族 ===== -->
+      <section id="watching-section" class="stack" aria-labelledby="watching-heading">
+        <h2 id="watching-heading" class="section-heading">あなたが見守っているご家族</h2>
 
-    <section id="caregiver-section" class="stack" style="display:none;">
-      <div class="card card--warm">
-        <h2>招待コードを入力</h2>
-        <p class="text-sm text-muted">ご家族から共有された招待コードを入力してください。</p>
-        <form id="join-form" class="row">
-          <input type="text" id="invite-code-input" placeholder="例：a1b2c3d4" required style="flex:1" />
-          <button type="submit" class="btn btn-accent" style="width:auto;">参加する</button>
-        </form>
-      </div>
+        <div id="watching-list" class="stack stack--tight">
+          <p class="text-muted">読み込み中…</p>
+        </div>
 
-      <h2>見守り中のご家族</h2>
-      <div id="watched-list" class="stack stack--tight"><p class="text-muted">読み込み中…</p></div>
-    </section>
+        <details class="card card--warm fold" id="join-fold">
+          <summary class="fold-summary">招待コードを入力して見守りを始める</summary>
+          <p class="text-sm text-muted">ご家族の「見守り」画面に表示されている招待コードを入力してください。</p>
+          <form id="join-form" class="stack stack--tight">
+            <label class="sr-only" for="invite-code-input">招待コード</label>
+            <input type="text" id="invite-code-input" placeholder="例：a1b2c3d4"
+                   inputmode="latin" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+            <label class="text-sm" for="relation-input">あなたから見た続柄（任意）</label>
+            <input type="text" id="relation-input" placeholder="例：母、父、祖母" maxlength="20" />
+            <button type="submit" class="btn btn-accent">見守りを始める</button>
+          </form>
+        </details>
+      </section>
+
+      <!-- ===== 見守られる側：自分を見守っているご家族 ===== -->
+      <section id="watchers-section" class="stack" aria-labelledby="watchers-heading">
+        <h2 id="watchers-heading" class="section-heading">あなたを見守っているご家族</h2>
+
+        <details class="card card--warm fold" id="invite-fold">
+          <summary class="fold-summary">あなたの招待コード</summary>
+          <p class="text-sm text-muted">このコードをご家族に伝えると、あなたのお薬の予定と服薬の記録を見守ってもらえます。</p>
+          <div class="invite-code-box" id="invite-code-box" hidden></div>
+          <button class="btn btn-outline" id="create-group-btn" hidden>招待コードを発行する</button>
+          <button class="btn btn-ghost btn--sm" id="copy-code-btn" hidden>コードをコピーする</button>
+        </details>
+
+        <div id="watchers-list" class="stack stack--tight">
+          <p class="text-muted">読み込み中…</p>
+        </div>
+      </section>
+
+    </div>
   </main>
 
   <script src="js/config.js"></script>
