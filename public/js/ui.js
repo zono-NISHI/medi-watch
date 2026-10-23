@@ -42,14 +42,12 @@ function requireLoginOrRedirect() {
 
 // 下部ナビゲーションを描画する
 function renderBottomNav(activeKey) {
-  const profile = Session.profile();
-  const isPatient = profile?.role === 'patient';
-
   const items = [
     { key: 'home', href: 'home.html', label: 'ホーム', icon: iconHome() },
     { key: 'medications', href: 'medications.html', label: 'お薬', icon: iconPill() },
     { key: 'logs', href: 'logs.html', label: '記録', icon: iconCheck() },
-    { key: 'family', href: 'family.html', label: isPatient ? '家族' : '見守り', icon: iconUsers() },
+    // 1つのアカウントで「見守る」「見守られる」の両方を行うため、役割によらず同じ名前にする
+    { key: 'family', href: 'family.html', label: '見守り', icon: iconUsers() },
     { key: 'mypage', href: 'mypage.html', label: 'マイページ', icon: iconUser() },
   ];
 

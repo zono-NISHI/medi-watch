@@ -23,7 +23,10 @@
       </button>
     </header>
 
-    <section id="role-banner"></section>
+    <!-- 表示する人の切り替え（見守っているご家族がいるときだけ表示） -->
+    <nav id="view-switcher" class="view-switcher" aria-label="表示する人" hidden></nav>
+
+    <section id="role-banner" aria-live="polite"></section>
 
     <section id="schedule-list" class="stack" aria-live="polite">
       <p class="text-muted">読み込み中…</p>

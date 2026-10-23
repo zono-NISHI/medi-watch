@@ -26,7 +26,7 @@ self.addEventListener('push', (event) => {
     body: payload.body || '',
     icon: 'assets/icon-192.png',
     badge: 'assets/icon-192.png',
-    data: { logId: payload.logId, type: payload.type },
+    data: { logId: payload.logId, type: payload.type, patientId: payload.patientId },
     vibrate: [300, 100, 300, 100, 300],
     tag: payload.logId ? `log-${payload.logId}` : undefined, // 同じ予定の通知は1件にまとめる
     renotify: true,
@@ -38,11 +38,17 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+
+  // 家族宛ての通知は、その人の服薬状況を表示した状態でホームを開く
+  const patientId = event.notification.data?.patientId;
+  const targetUrl = patientId ? `home.html?view=${encodeURIComponent(patientId)}` : 'home.html';
+
   event.waitUntil(
     self.clients.matchAll({ type: 'window' }).then((clientsArr) => {
-      const targetUrl = 'home.html';
-      const existing = clientsArr.find((c) => c.url.includes(targetUrl));
-      if (existing) return existing.focus();
+      const existing = clientsArr.find((c) => c.url.includes('home.html'));
+      if (existing) {
+        return existing.focus().then((c) => (patientId && c.navigate ? c.navigate(targetUrl) : c));
+      }
       return self.clients.openWindow(targetUrl);
     })
   );

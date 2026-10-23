@@ -23,12 +23,37 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   console.warn('[notificationService] VAPID鍵が未設定のため、プッシュ通知は送信されません。');
 }
 
-const NOTIFICATION_MESSAGES = {
-  medication_reminder: { title: 'お薬の時間です', body: 'お薬を服用する時間になりました。' },
-  medication_taken: { title: '服薬完了のお知らせ', body: 'お薬を服用したことが記録されました。' },
-  medication_missed: { title: '飲み忘れの可能性があります', body: '予定の時間にお薬の記録が確認できませんでした。' },
-  video_recorded: { title: '服薬映像が記録されました', body: '服薬の様子を映像で確認できます。' },
-};
+// 家族宛ての通知には「誰の」お知らせかを必ず入れる。
+// 1つのアカウントで自分の服薬と家族の見守りを両方行うため、
+// 名前が無いと自分のことか家族のことか区別できない。
+function buildMessage(type, patientName) {
+  const who = patientName ? `${patientName}さん` : 'ご家族';
+  switch (type) {
+    case 'medication_reminder':
+      return { title: 'お薬の時間です', body: 'お薬を服用する時間になりました。' };
+    case 'medication_taken':
+      return { title: `服薬完了：${who}`, body: `${who}がお薬を服用したことが記録されました。` };
+    case 'medication_missed':
+      return { title: `飲み忘れの可能性：${who}`, body: `予定の時間に${who}のお薬の記録が確認できませんでした。` };
+    case 'video_recorded':
+      return { title: `服薬映像：${who}`, body: `${who}の服薬の様子を映像で確認できます。` };
+    default:
+      return { title: '通知', body: 'お薬手帳からのお知らせです。' };
+  }
+}
+
+async function getProfileName(userId) {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('name')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[notificationService] 名前の取得に失敗:', error.message);
+    return null;
+  }
+  return data?.name || null;
+}
 
 // 患者本人のケアグループに所属する家族・介護者へ通知を送信する
 async function notifyCareGroup({ patientId, logId, type }) {
@@ -59,13 +84,18 @@ async function notifyCareGroup({ patientId, logId, type }) {
 
   if (targetUserIds.length === 0) return { sent: 0 };
 
-  const message = NOTIFICATION_MESSAGES[type] || { title: '通知', body: 'お薬手帳からのお知らせです。' };
+  // 見守られている本人が、自分の家族を見守る側として通知を受け取ることはない
+  // （自分のグループには参加できない）が、念のため送信先から除外しておく
+  const recipients = targetUserIds.filter((id) => id !== patientId);
+  if (recipients.length === 0) return { sent: 0 };
+
+  const message = buildMessage(type, await getProfileName(patientId));
 
   // 対象ユーザーのプッシュサブスクリプションを取得
   const { data: subs, error: subErr } = await supabaseAdmin
     .from('push_subscriptions')
     .select('*')
-    .in('user_id', targetUserIds);
+    .in('user_id', recipients);
 
   if (subErr) throw subErr;
 
@@ -79,7 +109,7 @@ async function notifyCareGroup({ patientId, logId, type }) {
               endpoint: sub.endpoint,
               keys: { p256dh: sub.p256dh, auth: sub.auth_key },
             },
-            JSON.stringify({ title: message.title, body: message.body, logId, type })
+            JSON.stringify({ title: message.title, body: message.body, logId, type, patientId })
           );
           sentCount += 1;
         } catch (err) {
@@ -99,10 +129,10 @@ async function notifyCareGroup({ patientId, logId, type }) {
     group_id: groupIds[0] || null,
     log_id: logId || null,
     type,
-    sent_to_user_ids: targetUserIds,
+    sent_to_user_ids: recipients,
   });
 
-  return { sent: sentCount, targeted: targetUserIds.length };
+  return { sent: sentCount, targeted: recipients.length };
 }
 
 module.exports = { notifyCareGroup, vapidConfigured, VAPID_PUBLIC_KEY };

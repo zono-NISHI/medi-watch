@@ -237,11 +237,23 @@ const Api = {
   me: () => apiRequest('/auth/me'),
   updateMe: (payload) => apiRequest('/auth/me', { method: 'PATCH', body: payload }),
 
-  // ---- ケアグループ ----
-  createCareGroup: (payload) => apiRequest('/care-groups', { method: 'POST', body: payload }),
-  listCareGroups: () => apiRequest('/care-groups'),
-  listGroupMembers: (groupId) => apiRequest(`/care-groups/${groupId}/members`),
+  // ---- ケアグループ（見守り） ----
+  // 見守られる側：自分の招待コード
+  getMyCareGroup: () => apiRequest('/care-groups/mine'),
+  createCareGroup: (payload = {}) => apiRequest('/care-groups', { method: 'POST', body: payload }),
+  // 見守られる側：自分を見守っている人
+  listWatchers: () => apiRequest('/care-groups/watchers'),
+  setMemberVideoPermission: (memberId, canViewVideo) =>
+    apiRequest(`/care-groups/members/${memberId}`, {
+      method: 'PATCH',
+      body: { can_view_video: canViewVideo },
+    }),
+  // 見守る側：自分が見守っている人
+  listWatching: () => apiRequest('/care-groups/watching'),
   joinCareGroup: (payload) => apiRequest('/care-groups/join', { method: 'POST', body: payload }),
+  // 両側共通：見守りの解除（見守りをやめる／見守りを外す）
+  removeMember: (memberId) => apiRequest(`/care-groups/members/${memberId}`, { method: 'DELETE' }),
+  listCareGroups: () => apiRequest('/care-groups'),
 
   // ---- 薬情報 ----
   listMedications: (patientId) =>
