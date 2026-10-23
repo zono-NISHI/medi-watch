@@ -347,6 +347,7 @@ function resetCameraUi() {
   recordIndicator.hidden = true;
   startCameraBtn.hidden = false;
   finishTakeBtn.hidden = true;
+  takeWithoutVideoBtn.hidden = false;
   recordedChunks = [];
 }
 
@@ -371,6 +372,8 @@ startCameraBtn.addEventListener('click', async () => {
     recordIndicator.hidden = false;
     startCameraBtn.hidden = true;
     finishTakeBtn.hidden = false;
+    // 録画中は「映像つきで記録」だけを出し、ボタンの役割が重ならないようにする
+    takeWithoutVideoBtn.hidden = true;
 
     recordedChunks = [];
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
@@ -407,7 +410,7 @@ finishTakeBtn.addEventListener('click', async () => {
     handleApiError(err, '記録に失敗しました。');
   } finally {
     finishTakeBtn.disabled = false;
-    finishTakeBtn.textContent = '飲みました（記録する）';
+    finishTakeBtn.textContent = '飲みました（映像つきで記録する）';
   }
 });
 
