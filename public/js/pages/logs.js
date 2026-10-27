@@ -40,8 +40,19 @@ function renderLogs(logs) {
     return;
   }
 
-  container.innerHTML = logs
+  // 記録した時刻の昇順に並べる。未記録（pending）は最後に、予定時刻の昇順で並べる
+  const sorted = [...logs].sort((a, b) => {
+    const ra = recordedAt(a);
+    const rb = recordedAt(b);
+    if (ra && rb) return new Date(ra) - new Date(rb);
+    if (ra) return -1;
+    if (rb) return 1;
+    return new Date(a.scheduled_at) - new Date(b.scheduled_at);
+  });
+
+  container.innerHTML = sorted
     .map((log) => {
+      const recorded = recordedAt(log);
       const med = log.medication_schedules?.medications;
       const statusBadge =
         log.status === 'taken'
@@ -60,7 +71,7 @@ function renderLogs(logs) {
           <div class="log-date">${formatDateTime(log.scheduled_at)}</div>
           <div class="log-main">
             <h3>${med?.name || '（薬名不明）'}</h3>
-            <div class="row">${statusBadge} ${log.taken_at ? `<span class="text-sm text-muted">${formatDateTime(log.taken_at)} に記録</span>` : ''}</div>
+            <div class="row">${statusBadge} ${recorded ? `<span class="text-sm text-muted">${formatDateTime(recorded)} に記録</span>` : ''}</div>
           </div>
           ${videoBtn}
         </div>`;
@@ -77,4 +88,11 @@ function renderLogs(logs) {
       }
     })
   );
+}
+
+// 記録した時刻を返す（未記録なら null）。
+// 以前のスキップ記録は taken_at を保存していないため、更新時刻（updated_at）で代用する
+function recordedAt(log) {
+  if (log.status === 'pending') return null;
+  return log.taken_at || (log.status === 'skipped' ? log.updated_at : null);
 }
