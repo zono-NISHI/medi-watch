@@ -117,7 +117,8 @@ router.patch(
 
     const { data: log, error } = await req.supabase
       .from('medication_logs')
-      .update({ status: 'skipped', notes: notes || null })
+      // taken_at は「記録した時刻」として扱い、スキップ時にも保存する（記録タブで表示・並び替えに使う）
+      .update({ status: 'skipped', taken_at: new Date().toISOString(), notes: notes || null })
       .eq('id', req.params.id)
       .select()
       .single();
