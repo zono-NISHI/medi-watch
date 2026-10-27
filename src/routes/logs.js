@@ -6,6 +6,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
 const { notifyCareGroup } = require('../services/notificationService');
+const { JST_OFFSET, jstToday, buildScheduledAt } = require('../lib/jst');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -27,8 +28,9 @@ router.get(
       .order('scheduled_at', { ascending: false });
 
     if (date) {
-      const start = `${date}T00:00:00`;
-      const end = `${date}T23:59:59`;
+      // 日付は日本時間の1日として扱う（タイムゾーンを付けないと UTC と解釈され、朝 0〜9 時の予定が漏れる）
+      const start = `${date}T00:00:00${JST_OFFSET}`;
+      const end = `${date}T23:59:59${JST_OFFSET}`;
       query = query.gte('scheduled_at', start).lte('scheduled_at', end);
     }
     if (status) {
@@ -44,22 +46,52 @@ router.get(
 // ----------------------------------------------------------
 // POST /api/logs
 // スケジュールに基づく服薬記録の手動作成（通常はcronジョブが自動生成する想定）
-// body: { schedule_id, scheduled_at }
+// 予定時刻は「date（JST、省略時は今日）＋スケジュールの服薬時刻」から決める。
+// cron と同じ予定時刻にそろえることで、同じ予定の記録が二重にできないようにする。
+// その予定の記録がすでにあれば、新しく作らずにそれを返す。
+// body: { schedule_id, date? }
 // ----------------------------------------------------------
 router.post(
   '/',
   asyncHandler(async (req, res) => {
-    const { schedule_id, scheduled_at } = req.body;
-    if (!schedule_id || !scheduled_at) {
-      return res.status(400).json({ error: 'スケジュールIDと予定時刻は必須です。' });
+    const { schedule_id } = req.body;
+    const date = req.body.date || jstToday().dateStr;
+    if (!schedule_id) {
+      return res.status(400).json({ error: 'スケジュールIDは必須です。' });
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: '日付の形式が正しくありません。' });
+    }
+
+    const { data: schedule, error: scheduleErr } = await req.supabase
+      .from('medication_schedules')
+      .select('id, scheduled_time')
+      .eq('id', schedule_id)
+      .eq('patient_id', req.user.id)
+      .maybeSingle();
+
+    if (scheduleErr) return sendSupabaseError(res, scheduleErr, '服薬スケジュールの取得に失敗しました。');
+    if (!schedule) return res.status(404).json({ error: '服薬スケジュールが見つかりません。' });
+
+    const scheduledAt = buildScheduledAt(date, schedule.scheduled_time).toISOString();
+
+    const { data: existing, error: existErr } = await req.supabase
+      .from('medication_logs')
+      .select()
+      .eq('schedule_id', schedule.id)
+      .eq('scheduled_at', scheduledAt)
+      .limit(1)
+      .maybeSingle();
+
+    if (existErr) return sendSupabaseError(res, existErr, '服薬記録の取得に失敗しました。');
+    if (existing) return res.json({ log: existing });
 
     const { data, error } = await req.supabase
       .from('medication_logs')
       .insert({
-        schedule_id,
+        schedule_id: schedule.id,
         patient_id: req.user.id,
-        scheduled_at,
+        scheduled_at: scheduledAt,
         status: 'pending',
       })
       .select()

@@ -335,9 +335,9 @@ async function openTakeModal({ logId, scheduleId, medName }) {
 
 async function ensureLogExists(scheduleId) {
   // ホーム表示時点でその日のログがまだ無い場合（cronがまだ走っていない等）に備えたフォールバック
-  const now = new Date();
-  const scheduledAt = now.toISOString();
-  const { log } = await Api.createLog({ schedule_id: scheduleId, scheduled_at: scheduledAt });
+  // 予定時刻はサーバーがスケジュールの服薬時刻から決める（押した時刻で作ると、
+  // cron が作る本来の予定の記録と別物になり「未記録」が残ってしまうため）
+  const { log } = await Api.createLog({ schedule_id: scheduleId, date: todayStr() });
   return log.id;
 }
 
