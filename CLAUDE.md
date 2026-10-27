@@ -4,6 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 運用ルール（必ず守ること）
 - 回答は常に日本語で行う。
+- コマンド実行の確認時に表示する説明文（ツール呼び出しの description など）も日本語で書く。
 - ブランチ運用: 作業は必ず `feature/xxxx` ブランチで行い、`develop` へPRを出してマージする。`main` はアプリ完成時に `develop` からマージする予定のため、それまでは `main` への直接のコミット・push・マージは行わない。
 - デプロイ: Render。`develop` へのマージで自動デプロイされる（つまり develop へのマージ＝本番反映）。
 - メール送信: Brevo を使用（Supabase Auth の SMTP 経由。テンプレートは `src/supabase/templates/`）。
