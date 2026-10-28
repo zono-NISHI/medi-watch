@@ -261,12 +261,19 @@ const takeWithoutVideoBtn = document.getElementById('take-without-video-btn');
 const skipBtn = document.getElementById('skip-btn');
 const uploadStatus = document.getElementById('upload-status');
 
+// 録画は長くても30秒で自動的に止め、そのまま「服薬済み（映像つき）」として記録する
+// （「飲みました」の押し忘れで録画が続くと、保存先の上限 50MB を超えて映像が保存できなくなるため）
+const MAX_RECORD_SECONDS = 30;
+const VIDEO_BITS_PER_SECOND = 1000000; // 約1Mbps（30秒で約4MB）
+let recordTimer = null;
+let finishing = false; // 自動の記録とボタンの記録が重ならないようにする
+
 async function openTakeModal({ logId, scheduleId, medName }) {
   currentLogId = logId || (await ensureLogExists(scheduleId));
   currentMedName = medName || 'お薬';
 
   document.getElementById('take-modal-title').textContent = `「${currentMedName}」を服用しましょう`;
-  document.getElementById('take-modal-sub').textContent = '服用後、ボタンを押して記録してください。カメラの利用は任意です。';
+  document.getElementById('take-modal-sub').textContent = `服用後、ボタンを押して記録してください。カメラの利用は任意です。録画は${MAX_RECORD_SECONDS}秒たつと自動で終わり、そのまま記録されます。`;
   uploadStatus.textContent = '';
   resetCameraUi();
 
@@ -286,6 +293,7 @@ function resetCameraUi() {
   videoEl.style.display = 'none';
   placeholderEl.style.display = 'flex';
   recordIndicator.hidden = true;
+  recordIndicator.textContent = '● 記録中';
   startCameraBtn.hidden = false;
   finishTakeBtn.hidden = true;
   takeWithoutVideoBtn.hidden = false;
@@ -304,7 +312,7 @@ startCameraBtn.addEventListener('click', async () => {
   try {
     // フロントカメラ（内向き）を優先して起動
     mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user' },
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
       audio: false,
     });
     videoEl.srcObject = mediaStream;
@@ -320,18 +328,43 @@ startCameraBtn.addEventListener('click', async () => {
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
       ? 'video/webm;codecs=vp9'
       : 'video/webm';
-    mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+    mediaRecorder = new MediaRecorder(mediaStream, { mimeType, videoBitsPerSecond: VIDEO_BITS_PER_SECOND });
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) recordedChunks.push(e.data);
     };
     mediaRecorder.start();
+    startRecordCountdown();
   } catch (err) {
     console.error(err);
     showToast('カメラを起動できませんでした。映像なしで記録することもできます。', 'error');
   }
 });
 
-finishTakeBtn.addEventListener('click', async () => {
+// 録画の残り時間を表示し、0秒になったら自動で記録する
+function startRecordCountdown() {
+  clearInterval(recordTimer);
+  let remaining = MAX_RECORD_SECONDS;
+  recordIndicator.textContent = `● 記録中（あと${remaining}秒）`;
+  recordTimer = setInterval(() => {
+    remaining -= 1;
+    if (remaining > 0) {
+      recordIndicator.textContent = `● 記録中（あと${remaining}秒）`;
+      return;
+    }
+    clearInterval(recordTimer);
+    recordTimer = null;
+    finishTake(true);
+  }, 1000);
+}
+
+finishTakeBtn.addEventListener('click', () => finishTake(false));
+
+// auto: 録画が30秒に達して自動で記録するとき true
+async function finishTake(auto) {
+  if (finishing) return;
+  finishing = true;
+  clearInterval(recordTimer);
+  recordTimer = null;
   finishTakeBtn.disabled = true;
   finishTakeBtn.textContent = '記録しています…';
 
@@ -344,17 +377,24 @@ finishTakeBtn.addEventListener('click', async () => {
     stopCamera();
 
     await Api.takeLog(currentLogId, { video_url: videoUrl });
-    showToast('服薬を記録しました。ご家族にもお知らせします。', 'success');
+    showToast(
+      auto
+        ? `${MAX_RECORD_SECONDS}秒たったので、服薬を記録しました。ご家族にもお知らせします。`
+        : '服薬を記録しました。ご家族にもお知らせします。',
+      'success',
+      auto ? 6000 : 3200
+    );
     modal.close();
     loadTodaySchedules();
     MedAlarm.refresh(); // 記録した予定のアラームを止める
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
   } finally {
+    finishing = false;
     finishTakeBtn.disabled = false;
     finishTakeBtn.textContent = '飲みました（映像つきで記録する）';
   }
-});
+}
 
 function stopRecordingAndGetBlob() {
   return new Promise((resolve) => {
@@ -414,6 +454,8 @@ skipBtn.addEventListener('click', async () => {
 });
 
 function stopCamera() {
+  clearInterval(recordTimer);
+  recordTimer = null;
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     try { mediaRecorder.stop(); } catch {}
   }
