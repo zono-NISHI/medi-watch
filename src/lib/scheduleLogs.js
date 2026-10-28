@@ -6,6 +6,17 @@
 // ============================================================
 const { JST_OFFSET, jstToday, buildScheduledAt } = require('./jst');
 
+// 今日の分の記録をもう作らなくてよいか
+// logs: そのスケジュールの今日の記録 [{ status, scheduled_at }]
+//  - 服薬済み・スキップがある → 作らない（同じ日に2回飲むことになってしまうため）
+//  - 同じ予定時刻の記録がある → 作らない（二重にできないように）
+//  - 変更前の時刻の「飲み忘れ」（過ぎた未記録）だけ → 新しい時刻の分を作る（今日の分はまだ飲んでいないため）
+function hasTodayLog(logs, scheduledAt) {
+  return (logs || []).some(
+    (l) => l.status !== 'pending' || new Date(l.scheduled_at).getTime() === scheduledAt.getTime()
+  );
+}
+
 // supabase: 呼び出し元の権限のクライアント（ルートでは req.supabase）
 // schedule: { id, patient_id, scheduled_time, days_of_week, is_active }
 // 失敗しても登録・変更そのものは成功させたいので、エラーはログに出すだけにする
@@ -18,14 +29,14 @@ async function syncTodayLog(supabase, schedule) {
   const scheduledAt = buildScheduledAt(dateStr, schedule.scheduled_time);
   const appliesToday = schedule.is_active !== false && (schedule.days_of_week || []).includes(dow);
 
-  // 今日の「未記録」のうち、今の設定と合わないもの（変更前の時刻・止めた予定）を消す
-  // 服薬済み・スキップの記録は履歴なので残す
+  // 今日のこれからの「未記録」のうち、今の設定と合わないもの（変更前の時刻・止めた予定）を消す
+  // 服薬済み・スキップ・飲み忘れ（時刻を過ぎた未記録）は履歴なので残す（お薬の削除と同じ扱い）
   let staleQuery = supabase
     .from('medication_logs')
     .delete()
     .eq('schedule_id', schedule.id)
     .eq('status', 'pending')
-    .gte('scheduled_at', dayStart)
+    .gt('scheduled_at', now.toISOString())
     .lte('scheduled_at', dayEnd);
   if (appliesToday) staleQuery = staleQuery.neq('scheduled_at', scheduledAt.toISOString());
   const { error: deleteErr } = await staleQuery;
@@ -36,16 +47,15 @@ async function syncTodayLog(supabase, schedule) {
 
   const { data: existing, error: existErr } = await supabase
     .from('medication_logs')
-    .select('id')
+    .select('status, scheduled_at')
     .eq('schedule_id', schedule.id)
     .gte('scheduled_at', dayStart)
-    .lte('scheduled_at', dayEnd)
-    .limit(1);
+    .lte('scheduled_at', dayEnd);
   if (existErr) {
     console.error('[scheduleLogs] 今日の記録の確認エラー:', existErr);
     return;
   }
-  if (existing && existing.length > 0) return;
+  if (hasTodayLog(existing, scheduledAt)) return;
 
   const { error: insertErr } = await supabase.from('medication_logs').insert({
     schedule_id: schedule.id,
@@ -56,4 +66,4 @@ async function syncTodayLog(supabase, schedule) {
   if (insertErr) console.error('[scheduleLogs] 今日の記録の作成エラー:', insertErr);
 }
 
-module.exports = { syncTodayLog };
+module.exports = { syncTodayLog, hasTodayLog };
