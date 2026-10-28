@@ -3,6 +3,8 @@
 //  - 薬一覧表示
 //  - 手入力登録/編集
 //  - QRコード（JAHISフォーマット）読み取り登録
+//  - 「自分」と「見守っているご家族」を上部のボタンで切り替えて表示（js/viewTarget.js）
+//    ご家族のお薬は見るだけ（登録・編集・削除はご本人だけ）
 // ============================================================
 
 if (!requireLoginOrRedirect()) {
@@ -10,16 +12,43 @@ if (!requireLoginOrRedirect()) {
 }
 
 renderBottomNav('medications');
-loadMedications();
+MedAlarm.start(); // 服薬時刻になったら、この画面でもアラームを出す
 
 let qrStream = null;
 let qrScanRAF = null;
 let editingMedicationId = null;
 
+ViewTarget.init()
+  .then(renderViewHeader)
+  .catch((err) => console.error(err))
+  .finally(loadMedications);
+
+// 切り替えボタン・見出し・見守り中の帯・登録ボタンを、いま表示している人に合わせる
+function renderViewHeader() {
+  ViewTarget.renderSwitcher(document.getElementById('view-switcher'), () => {
+    renderViewHeader();
+    document.getElementById('medication-list').innerHTML = '<p class="text-muted">読み込み中…</p>';
+    loadMedications();
+  });
+  document.getElementById('page-title').textContent = ViewTarget.title('お薬の管理', 'お薬');
+  ViewTarget.renderBanner(
+    document.getElementById('role-banner'),
+    'お薬の登録・変更はご本人だけが行えます。'
+  );
+  document.getElementById('register-actions').hidden = !isSelfView();
+}
+
+function isSelfView() {
+  return ViewTarget.get()?.isSelf !== false;
+}
+
 async function loadMedications() {
   const container = document.getElementById('medication-list');
+  const target = ViewTarget.get();
   try {
-    const { medications } = await Api.listMedications();
+    const { medications } = await Api.listMedications(target && !target.isSelf ? target.id : undefined);
+    // 読み込み中に別の人へ切り替えられていたら、古い結果は捨てる
+    if (ViewTarget.get() !== target) return;
     renderMedications(medications);
   } catch (err) {
     container.innerHTML = '<p class="text-muted">読み込みに失敗しました。</p>';
@@ -29,10 +58,11 @@ async function loadMedications() {
 
 function renderMedications(medications) {
   const container = document.getElementById('medication-list');
+  const editable = isSelfView();
   if (!medications || medications.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
-        <p>まだお薬が登録されていません。</p>
+        <p>${editable ? 'まだお薬が登録されていません。' : `${escapeHtml(ViewTarget.get().label)}のお薬はまだ登録されていません。`}</p>
       </div>`;
     return;
   }
@@ -47,10 +77,10 @@ function renderMedications(medications) {
           <div class="med-card-head">
             <div style="flex:1">
               <h3>${escapeHtml(m.name)}</h3>
-              <p class="text-sm text-muted" style="margin:0">${m.dosage || ''} ${m.unit || ''}</p>
+              <p class="text-sm text-muted" style="margin:0">${escapeHtml(m.dosage)} ${escapeHtml(m.unit)}</p>
               ${m.notes ? `<p class="text-sm text-muted" style="margin-top:4px">${escapeHtml(m.notes)}</p>` : ''}
             </div>
-            <div class="med-card-actions">
+            <div class="med-card-actions" ${editable ? '' : 'hidden'}>
               <button data-action="edit" data-id="${m.id}" aria-label="編集">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               </button>

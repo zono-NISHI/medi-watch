@@ -3,7 +3,7 @@
 //  - 「自分」と「見守っているご家族」を上部のボタンで切り替えて表示
 //    （1つのアカウントで見守る側・見守られる側の両方を行えるため）
 //  - 本日の服薬スケジュールを表示
-//  - 服薬時刻になったら音声で案内し、内向きカメラを起動できる
+//  - 服薬時刻になったらアラーム（js/alarm.js）で知らせ、内向きカメラを起動できる
 //  - 撮影した映像は Supabase Storage に署名付きURLでアップロード
 // ============================================================
 
@@ -14,17 +14,19 @@ if (!requireLoginOrRedirect()) {
 
 const profile = Session.profile();
 
-// ---- 表示する人（自分／見守っているご家族）----
-const VIEW_KEY = 'medi_watch_home_view';
-let viewTargets = [];      // [{ id, label, isSelf, canViewVideo }]
-let currentTarget = null;  // viewTargets のいずれか
+// ---- 表示する人（自分／見守っているご家族）は js/viewTarget.js の ViewTarget で管理する ----
+const SELF_TARGET = { id: profile.id, isSelf: true, canViewVideo: true };
+
+// 服薬アラーム（js/alarm.js）の「カメラを起動する」から来たとき（?take=スケジュールID）
+const takeFromUrl = new URLSearchParams(location.search).get('take');
+if (takeFromUrl) history.replaceState(null, '', location.pathname);
 
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let currentLogId = null;
 let currentMedName = '';
-let spokenLogIds = new Set(); // 1セッション中に音声案内済みのログ
+let lastMerged = []; // 最後に表示した自分の予定（アラームから撮影を始めるときに使う）
 
 document.getElementById('today-label').textContent = new Date().toLocaleDateString('ja-JP', {
   year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
@@ -65,103 +67,64 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-initViewTargets().finally(runPoll);
+ViewTarget.init()
+  .then(() => {
+    // アラームから来たときは、自分の予定を表示して撮影を始める
+    if (takeFromUrl) ViewTarget.select(profile.id);
+    renderViewHeader();
+  })
+  .catch((err) => console.error(err))
+  .finally(async () => {
+    await runPoll();
+    if (takeFromUrl) startTakeFromAlarm(takeFromUrl);
+  });
 
-// ------------------------------------------------------------
-// 表示する人の一覧を作り、最初に表示する人を決める
-//   優先順位: URLの ?view=（通知・見守り画面から） → 前回選んだ人 → 登録時の役割
-// ------------------------------------------------------------
-async function initViewTargets() {
-  const self = { id: profile.id, label: '自分', isSelf: true, canViewVideo: true };
-  let watching = [];
-  try {
-    ({ watching } = await Api.listWatching());
-  } catch (err) {
-    console.error('見守り中のご家族を取得できませんでした:', err);
-  }
-
-  viewTargets = [
-    self,
-    ...(watching || []).map((w) => ({
-      id: w.patient_id,
-      label: `${w.name || '名前未設定'}さん`,
-      isSelf: false,
-      canViewVideo: !!w.can_view_video,
-    })),
-  ];
-
-  const fromUrl = new URLSearchParams(location.search).get('view');
-  let saved = null;
-  try { saved = localStorage.getItem(VIEW_KEY); } catch { /* 保存できなくても動く */ }
-
-  const roleDefault =
-    profile?.role === 'caregiver' && viewTargets.length > 1 ? viewTargets[1].id : self.id;
-
-  currentTarget =
-    viewTargets.find((t) => t.id === fromUrl) ||
-    viewTargets.find((t) => t.id === saved) ||
-    viewTargets.find((t) => t.id === roleDefault) ||
-    self;
-
-  // URLの指定は1回限り（再読み込みで固定されないよう消しておく）
-  if (fromUrl) history.replaceState(null, '', location.pathname);
-
-  renderViewSwitcher();
-  renderViewBanner();
-}
-
-function renderViewSwitcher() {
-  const nav = document.getElementById('view-switcher');
-  if (viewTargets.length <= 1) {
-    nav.hidden = true;
-    nav.innerHTML = '';
-    return;
-  }
-  nav.hidden = false;
-  nav.innerHTML = viewTargets
-    .map(
-      (t) => `
-      <button type="button" class="view-chip" data-target-id="${t.id}"
-              aria-pressed="${t.id === currentTarget.id}">${escapeHtml(t.label)}</button>`
-    )
-    .join('');
-}
-
-document.getElementById('view-switcher').addEventListener('click', (e) => {
-  const btn = e.target.closest('.view-chip');
-  if (!btn) return;
-  const next = viewTargets.find((t) => t.id === btn.dataset.targetId);
-  if (!next || next.id === currentTarget.id) return;
-
-  currentTarget = next;
-  try { localStorage.setItem(VIEW_KEY, next.id); } catch { /* noop */ }
-  renderViewSwitcher();
-  renderViewBanner();
-  document.getElementById('schedule-list').innerHTML = '<p class="text-muted">読み込み中…</p>';
-  pollFailures = 0;
-  clearTimeout(pollTimer);
-  runPoll();
+// 服薬アラーム：ホームでは画面を移らずに、この画面の撮影モーダルを開く
+MedAlarm.start({
+  isBusy: () => modal.open,
+  onStartCamera: ({ schedule, log }) => {
+    if (!ViewTarget.get()?.isSelf) {
+      ViewTarget.select(profile.id);
+      renderViewHeader();
+      runPoll();
+    }
+    openTakeModal({ logId: log?.id, scheduleId: schedule.id, medName: schedule.medications?.name })
+      .then(() => startCameraBtn.click());
+  },
+  onRecorded: () => loadTodaySchedules().catch(() => {}),
 });
 
-// 家族の予定を表示しているときは、誰の予定かをはっきり示す
-function renderViewBanner() {
-  const banner = document.getElementById('role-banner');
-  if (!currentTarget || currentTarget.isSelf) {
-    banner.innerHTML = '';
-    return;
-  }
-  banner.innerHTML = `
-    <div class="card card--warm">
-      <strong>${escapeHtml(currentTarget.label)}のお薬を見ています</strong>
-      <p class="text-sm text-muted" style="margin:0">見守り中のため、記録の操作はできません。${
-        currentTarget.canViewVideo ? '' : '服薬映像は、ご本人の設定により表示されません。'
-      }</p>
-    </div>`;
+async function startTakeFromAlarm(scheduleId) {
+  const item = lastMerged.find(({ schedule }) => schedule.id === scheduleId);
+  if (!item || (item.log?.status && item.log.status !== 'pending')) return;
+  await openTakeModal({
+    logId: item.log?.id,
+    scheduleId,
+    medName: item.schedule.medications?.name,
+  });
+  startCameraBtn.click();
+}
+
+// 切り替えボタン・見出し・見守り中の帯を、いま表示している人に合わせる
+function renderViewHeader() {
+  const target = ViewTarget.get();
+  ViewTarget.renderSwitcher(document.getElementById('view-switcher'), () => {
+    renderViewHeader();
+    document.getElementById('schedule-list').innerHTML = '<p class="text-muted">読み込み中…</p>';
+    pollFailures = 0;
+    clearTimeout(pollTimer);
+    runPoll();
+  });
+  document.getElementById('page-title').textContent = ViewTarget.title('今日のお薬');
+  ViewTarget.renderBanner(
+    document.getElementById('role-banner'),
+    `記録の操作はご本人だけが行えます。${target?.canViewVideo === false ? '服薬映像は、ご本人の設定により表示されません。' : ''}`
+  );
 }
 
 async function loadTodaySchedules() {
   const container = document.getElementById('schedule-list');
-  const target = currentTarget || { id: profile.id, isSelf: true, canViewVideo: true };
+  const target = ViewTarget.get() || SELF_TARGET;
   try {
     const [{ schedules }, { logs }] = await Promise.all([
       Api.listSchedules(target.isSelf ? undefined : target.id),
@@ -169,14 +132,11 @@ async function loadTodaySchedules() {
     ]);
 
     // 読み込み中に別の人へ切り替えられていたら、古い結果は捨てる
-    if (currentTarget && currentTarget.id !== target.id) return;
+    if ((ViewTarget.get() || SELF_TARGET).id !== target.id) return;
 
     const merged = mergeSchedulesWithLogs(schedules, logs);
     renderSchedules(merged, target);
-
-    if (target.isSelf) {
-      maybeAnnounceDue(merged);
-    }
+    if (target.isSelf) lastMerged = merged;
   } catch (err) {
     container.innerHTML = `<p class="text-muted">読み込みに失敗しました。再読み込みしてください。</p>`;
     console.error(err);
@@ -205,7 +165,7 @@ function renderSchedules(merged, target) {
 
   if (merged.length === 0) {
     // 自分のお薬が無く、まだ誰も見守っていない人には、見守りの始め方も案内する
-    const showJoinHint = target.isSelf && viewTargets.length <= 1;
+    const showJoinHint = target.isSelf && !ViewTarget.hasFamily();
     container.innerHTML = `
       <div class="empty-state">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-45 12 12)"/></svg>
@@ -244,7 +204,7 @@ function renderSchedules(merged, target) {
           <div class="schedule-main">
             <h3>${escapeHtml(med.name || '（薬名未設定）')}</h3>
             <div class="schedule-meta">
-              <span class="text-sm text-muted">${med.dosage || ''} ${med.unit || ''} ・ ${mealTimingLabel(schedule.meal_timing)}</span>
+              <span class="text-sm text-muted">${escapeHtml(med.dosage)} ${escapeHtml(med.unit)} ・ ${mealTimingLabel(schedule.meal_timing)}</span>
               ${statusBadge}
             </div>
           </div>
@@ -275,26 +235,7 @@ function escapeHtml(str) {
   })[c]);
 }
 
-// ---- 音声案内（服薬時刻になったスケジュールを読み上げる） ----
-function maybeAnnounceDue(merged) {
-  if (!('speechSynthesis' in window)) return;
-  const now = new Date();
-
-  for (const { schedule, log } of merged) {
-    if (log?.status && log.status !== 'pending') continue;
-    const [h, m] = schedule.scheduled_time.split(':').map(Number);
-    const scheduled = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-    const diffMin = (now - scheduled) / 60000;
-
-    // 服薬時刻ちょうど（0〜2分以内）かつ未読み上げのものだけ案内する
-    const key = schedule.id;
-    if (diffMin >= 0 && diffMin <= 2 && !spokenLogIds.has(key)) {
-      spokenLogIds.add(key);
-      speakReminder(schedule.medications?.name || 'お薬');
-    }
-  }
-}
-
+// ---- 音声案内（撮影画面を開いたときに読み上げる。服薬時刻になったときのアラームは js/alarm.js） ----
 function speakReminder(medName) {
   try {
     const utter = new SpeechSynthesisUtterance(
@@ -406,6 +347,7 @@ finishTakeBtn.addEventListener('click', async () => {
     showToast('服薬を記録しました。ご家族にもお知らせします。', 'success');
     modal.close();
     loadTodaySchedules();
+    MedAlarm.refresh(); // 記録した予定のアラームを止める
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
   } finally {
@@ -450,6 +392,7 @@ takeWithoutVideoBtn.addEventListener('click', async () => {
     showToast('服薬を記録しました。', 'success');
     modal.close();
     loadTodaySchedules();
+    MedAlarm.refresh(); // 記録した予定のアラームを止める
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
   } finally {
@@ -464,6 +407,7 @@ skipBtn.addEventListener('click', async () => {
     showToast('今回はスキップとして記録しました。', 'info');
     modal.close();
     loadTodaySchedules();
+    MedAlarm.refresh(); // 記録した予定のアラームを止める
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
   }

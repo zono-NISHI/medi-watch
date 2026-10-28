@@ -13,10 +13,16 @@
   <main class="app-shell">
     <header class="topbar">
       <div class="topbar-icon" aria-hidden="true">薬</div>
-      <div class="topbar-title">お薬の管理</div>
+      <div class="topbar-title" id="page-title">お薬の管理</div>
     </header>
 
-    <div class="row row--wrap" style="margin-bottom: var(--space-3);">
+    <!-- 表示する人の切り替え（見守っているご家族がいるときだけ表示） -->
+    <nav id="view-switcher" class="view-switcher" aria-label="表示する人" hidden></nav>
+
+    <section id="role-banner" aria-live="polite"></section>
+
+    <!-- 登録ボタンは自分のお薬を表示しているときだけ出す -->
+    <div class="row row--wrap" id="register-actions" style="margin-bottom: var(--space-3);">
       <button class="btn btn-accent btn--auto" id="open-qr-btn">QRコードで登録</button>
       <button class="btn btn-outline btn--auto" id="open-manual-btn">手入力で登録</button>
     </div>
@@ -99,6 +105,8 @@
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/viewTarget.js"></script>
+  <script src="js/alarm.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <script src="js/pages/medications.js"></script>
 </body>

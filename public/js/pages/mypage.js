@@ -7,6 +7,7 @@ if (!requireLoginOrRedirect()) {
 }
 
 renderBottomNav('mypage');
+MedAlarm.start(); // 服薬時刻になったら、この画面でもアラームを出す
 
 const profileForm = document.getElementById('profile-form');
 const nameInput = document.getElementById('p-name');
