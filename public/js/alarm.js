@@ -89,7 +89,12 @@ const MedAlarm = (() => {
       .map((schedule) => {
         const [h, m] = schedule.scheduled_time.split(':').map(Number);
         const at = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-        const log = logs.find((l) => l.schedule_id === schedule.id);
+        // 服薬済み・スキップか、今の服薬時刻と同じ予定時刻の記録だけを対応させる
+        // （時刻を変えた日に残る、変更前の時刻の「飲み忘れ」では鳴らさない。ホームと同じ考え方）
+        const own = logs.filter((l) => l.schedule_id === schedule.id);
+        const log =
+          own.find((l) => l.status !== 'pending') ||
+          own.find((l) => new Date(l.scheduled_at).getTime() === at.getTime());
         return { schedule, log, at };
       })
       .filter(({ schedule, log, at }) => {

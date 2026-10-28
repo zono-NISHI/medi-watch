@@ -152,10 +152,7 @@ function todayStr() {
 function mergeSchedulesWithLogs(schedules, logs) {
   // その日のログがあればステータスを反映、なければ「未記録」として予定時刻のみ表示
   return (schedules || [])
-    .map((s) => {
-      const log = (logs || []).find((l) => l.schedule_id === s.id);
-      return { schedule: s, log };
-    })
+    .map((s) => ({ schedule: s, log: findTodayLog(s, logs) }))
     // 今日の服薬時刻を過ぎてから登録・変更した予定は、今日は出さない（明日から。サーバーの cron・アラームと同じ考え方）
     .filter(({ schedule, log }) => log || !isChangedAfterDue(schedule))
     .sort((a, b) => a.schedule.scheduled_time.localeCompare(b.schedule.scheduled_time));
@@ -232,20 +229,29 @@ function renderSchedules(merged, target, hasSchedules) {
   });
 }
 
-function isPastDue(scheduledTime) {
-  const now = new Date();
-  const [h, m] = scheduledTime.split(':').map(Number);
-  const scheduled = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-  return now > scheduled;
+// スケジュールに対応する今日の記録。服薬済み・スキップか、今の服薬時刻と同じ予定時刻の記録だけを対応させる
+// 時刻を変えた日に残る、変更前の時刻の「飲み忘れ」は記録タブにだけ出す（今日の予定とは別の履歴として扱う）
+function findTodayLog(schedule, logs) {
+  const at = todayAt(schedule.scheduled_time).getTime();
+  const own = (logs || []).filter((l) => l.schedule_id === schedule.id);
+  return own.find((l) => l.status !== 'pending') || own.find((l) => new Date(l.scheduled_at).getTime() === at);
 }
 
-// 今日の服薬時刻を過ぎてから登録・変更したスケジュールか（判定は isPastDue と同じく端末の時刻）
+// 今日のその時刻（端末の時刻で判定する）
+function todayAt(scheduledTime) {
+  const now = new Date();
+  const [h, m] = scheduledTime.split(':').map(Number);
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+}
+
+function isPastDue(scheduledTime) {
+  return new Date() > todayAt(scheduledTime);
+}
+
+// 今日の服薬時刻を過ぎてから登録・変更したスケジュールか
 function isChangedAfterDue(schedule) {
   if (!schedule.updated_at) return false;
-  const now = new Date();
-  const [h, m] = schedule.scheduled_time.split(':').map(Number);
-  const scheduled = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-  return new Date(schedule.updated_at) > scheduled;
+  return new Date(schedule.updated_at) > todayAt(schedule.scheduled_time);
 }
 
 // 本文にも属性値（data-med-name="..."）にも使うため、引用符まで置き換える

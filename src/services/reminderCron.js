@@ -13,6 +13,7 @@ const webpush = require('web-push');
 const { supabaseAdmin } = require('../supabase/supabase');
 const { notifyCareGroup, vapidConfigured } = require('./notificationService');
 const { JST_OFFSET, jstToday, buildScheduledAt } = require('../lib/jst');
+const { hasTodayLog } = require('../lib/scheduleLogs');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MISSED_THRESHOLD_MINUTES = 30; // この分数を過ぎても未服薬なら「飲み忘れ」とみなす
@@ -41,21 +42,20 @@ async function ensureTodayLogs() {
     // （作るとすぐに家族へ「飲み忘れ」が届いてしまうため。明日から記録する）
     if (new Date(schedule.updated_at) > scheduledAt) continue;
 
-    // 1つのスケジュールにつき1日1件。時刻を変えた日に、変更前の時刻の記録（服薬済みなど）が
-    // あれば新しい時刻の分は作らない（同じ日に2回飲むことになってしまうため）
+    // 時刻を変えた日に、変更前の時刻の記録（服薬済み・スキップ）があれば新しい時刻の分は作らない
+    // （同じ日に2回飲むことになってしまうため）。変更前の時刻の飲み忘れだけなら作る（hasTodayLog）
     const { data: existing, error: existErr } = await supabaseAdmin
       .from('medication_logs')
-      .select('id')
+      .select('status, scheduled_at')
       .eq('schedule_id', schedule.id)
       .gte('scheduled_at', `${today}T00:00:00${JST_OFFSET}`)
-      .lte('scheduled_at', `${today}T23:59:59${JST_OFFSET}`)
-      .limit(1);
+      .lte('scheduled_at', `${today}T23:59:59${JST_OFFSET}`);
 
     if (existErr) {
       console.error('[cron] 既存ログ確認エラー:', existErr);
       continue;
     }
-    if (existing && existing.length > 0) continue;
+    if (hasTodayLog(existing, scheduledAt)) continue;
 
     const { error: insertErr } = await supabaseAdmin.from('medication_logs').insert({
       schedule_id: schedule.id,
