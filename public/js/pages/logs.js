@@ -40,25 +40,22 @@ function renderLogs(logs) {
     return;
   }
 
-  // 記録した時刻の昇順に並べる。未記録（pending）は最後に、予定時刻の昇順で並べる
-  const sorted = [...logs].sort((a, b) => {
-    const ra = recordedAt(a);
-    const rb = recordedAt(b);
-    if (ra && rb) return new Date(ra) - new Date(rb);
-    if (ra) return -1;
-    if (rb) return 1;
-    return new Date(a.scheduled_at) - new Date(b.scheduled_at);
-  });
+  // 新しい順（降順）に並べる。記録済みは記録した時刻、未記録（pending）は予定時刻を基準にする
+  const sorted = [...logs].sort((a, b) => new Date(sortKey(b)) - new Date(sortKey(a)));
+  const now = Date.now();
 
   container.innerHTML = sorted
     .map((log) => {
       const recorded = recordedAt(log);
       const med = log.medication_schedules?.medications;
+      const isMissed = log.status === 'pending' && new Date(log.scheduled_at).getTime() < now;
       const statusBadge =
         log.status === 'taken'
           ? '<span class="badge badge-taken">服薬済み</span>'
           : log.status === 'skipped'
           ? '<span class="badge badge-skipped">スキップ</span>'
+          : isMissed
+          ? '<span class="badge badge-missed">飲み忘れ</span>'
           : '<span class="badge badge-pending">未記録</span>';
 
       const videoBtn =
@@ -95,4 +92,9 @@ function renderLogs(logs) {
 function recordedAt(log) {
   if (log.status === 'pending') return null;
   return log.taken_at || (log.status === 'skipped' ? log.updated_at : null);
+}
+
+// 並べ替えの基準となる時刻（記録した時刻。未記録なら予定時刻）
+function sortKey(log) {
+  return recordedAt(log) || log.scheduled_at;
 }
