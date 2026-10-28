@@ -88,3 +88,6 @@
   color: var(--color-clay);
   cursor: pointer;
 }
+
+/* 単位のプルダウンで「その他」を選んだときに出る入力欄 */
+.unit-picker .unit-other { margin-top: 0.5rem; }

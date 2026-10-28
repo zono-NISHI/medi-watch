@@ -4,6 +4,7 @@
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
+const { syncTodayLog } = require('../lib/scheduleLogs');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -55,6 +56,7 @@ router.post(
       .single();
 
     if (error) return sendSupabaseError(res, error, 'スケジュールの登録に失敗しました。');
+    await syncTodayLog(req.supabase, data);
     res.status(201).json({ schedule: data });
   })
 );
@@ -79,6 +81,9 @@ router.patch(
       .single();
 
     if (error) return sendSupabaseError(res, error, 'スケジュールの更新に失敗しました。');
+    if (['scheduled_time', 'days_of_week', 'is_active'].some((key) => key in updates)) {
+      await syncTodayLog(req.supabase, data);
+    }
     res.json({ schedule: data });
   })
 );

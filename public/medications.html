@@ -75,9 +75,11 @@
             <label for="m-dosage">用量</label>
             <input type="text" id="m-dosage" placeholder="例：1" />
           </div>
-          <div class="field" style="flex:1">
+          <div class="field unit-picker" id="m-unit-picker" style="flex:1">
             <label for="m-unit">単位</label>
-            <input type="text" id="m-unit" placeholder="例：錠" />
+            <!-- 選択肢は js/pages/medications.js の UNIT_OPTIONS から作る -->
+            <select id="m-unit" class="unit-select"></select>
+            <input type="text" class="unit-other" placeholder="単位を入力" aria-label="単位（その他）" hidden />
           </div>
         </div>
         <div class="field">
