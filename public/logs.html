@@ -14,8 +14,13 @@
   <main class="app-shell">
     <header class="topbar">
       <div class="topbar-icon" aria-hidden="true">記</div>
-      <div class="topbar-title">服薬記録</div>
+      <div class="topbar-title" id="page-title">服薬記録</div>
     </header>
+
+    <!-- 表示する人の切り替え（見守っているご家族がいるときだけ表示） -->
+    <nav id="view-switcher" class="view-switcher" aria-label="表示する人" hidden></nav>
+
+    <section id="role-banner" aria-live="polite"></section>
 
     <div class="row" style="margin-bottom: var(--space-3);">
       <input type="date" id="date-filter" />
@@ -35,6 +40,8 @@
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/viewTarget.js"></script>
+  <script src="js/alarm.js"></script>
   <script src="js/pages/logs.js"></script>
 </body>
 </html>

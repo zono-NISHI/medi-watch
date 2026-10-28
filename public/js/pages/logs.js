@@ -1,5 +1,6 @@
 // ============================================================
 //  服薬記録履歴ページ ロジック
+//  - 「自分」と「見守っているご家族」を上部のボタンで切り替えて表示（js/viewTarget.js）
 // ============================================================
 
 if (!requireLoginOrRedirect()) {
@@ -7,6 +8,7 @@ if (!requireLoginOrRedirect()) {
 }
 
 renderBottomNav('logs');
+MedAlarm.start(); // 服薬時刻になったら、この画面でもアラームを出す
 
 const dateFilter = document.getElementById('date-filter');
 const statusFilter = document.getElementById('status-filter');
@@ -14,18 +16,39 @@ const statusFilter = document.getElementById('status-filter');
 dateFilter.addEventListener('change', loadLogs);
 statusFilter.addEventListener('change', loadLogs);
 
-loadLogs();
+ViewTarget.init()
+  .then(renderViewHeader)
+  .catch((err) => console.error(err))
+  .finally(loadLogs);
+
+// 切り替えボタン・見出し・見守り中の帯を、いま表示している人に合わせる
+function renderViewHeader() {
+  const target = ViewTarget.get();
+  ViewTarget.renderSwitcher(document.getElementById('view-switcher'), () => {
+    renderViewHeader();
+    loadLogs();
+  });
+  document.getElementById('page-title').textContent = ViewTarget.title('服薬記録');
+  ViewTarget.renderBanner(
+    document.getElementById('role-banner'),
+    `記録の操作はご本人だけが行えます。${target?.canViewVideo === false ? '服薬映像は、ご本人の設定により表示されません。' : ''}`
+  );
+}
 
 async function loadLogs() {
   const container = document.getElementById('log-list');
   container.innerHTML = '<p class="text-muted">読み込み中…</p>';
 
+  const target = ViewTarget.get();
   const params = {};
+  if (target && !target.isSelf) params.patient_id = target.id;
   if (dateFilter.value) params.date = dateFilter.value;
   if (statusFilter.value) params.status = statusFilter.value;
 
   try {
     const { logs } = await Api.listLogs(params);
+    // 読み込み中に別の人へ切り替えられていたら、古い結果は捨てる
+    if (ViewTarget.get() !== target) return;
     renderLogs(logs);
   } catch (err) {
     container.innerHTML = '<p class="text-muted">読み込みに失敗しました。</p>';
@@ -99,7 +122,7 @@ function renderLogCard(log, now) {
   }
 
   const videoBtn =
-    log.status === 'taken' && log.video_url
+    log.status === 'taken' && log.video_url && ViewTarget.get()?.canViewVideo !== false
       ? `<button class="btn btn-outline btn--sm" data-log-id="${log.id}" data-action="video" style="width:auto">映像を見る</button>`
       : '';
 
@@ -110,7 +133,7 @@ function renderLogCard(log, now) {
         <span class="log-time-label">${recorded ? '記録' : '予定'}</span>
       </div>
       <div class="log-main">
-        <h3>${med?.name || '（薬名不明）'}</h3>
+        <h3>${escapeHtml(med?.name || '（薬名不明）')}</h3>
         <div class="row">${statusBadge} ${scheduleNote}</div>
       </div>
       ${videoBtn}
@@ -127,6 +150,13 @@ function recordedAt(log) {
 // 並べ替えの基準となる時刻（記録した時刻。未記録なら予定時刻）
 function sortKey(log) {
   return recordedAt(log) || log.scheduled_at;
+}
+
+// 薬の名前は家族の端末にも表示するため、HTML として解釈されないようにする
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
 }
 
 // ---- 日付・時刻の表示（端末のタイムゾーンに関係なく、日本時間で表示する） ----

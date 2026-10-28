@@ -12,6 +12,7 @@ if (!requireLoginOrRedirect()) {
 }
 
 renderBottomNav('family');
+MedAlarm.start(); // 服薬時刻になったら、この画面でもアラームを出す
 
 const profile = Session.profile();
 const prefersWatching = profile?.role === 'caregiver';

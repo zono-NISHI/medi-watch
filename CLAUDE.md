@@ -53,8 +53,10 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - `src/supabase/templates/*.html` は Supabase Auth のメールテンプレート（ダッシュボードで設定する）。
 
 ### フロントエンド（`public/`）
-- バンドラーもモジュールも使わない、素の JS によるマルチページ構成。各 HTML は通常の `<script>` タグで、まず `js/config.js`（`window.APP_CONFIG`）→ `js/api.js` を読み込む。ログイン後の画面はその後に `js/ui.js` →（`home`・`mypage` は `js/push.js`）→ `js/pages/<page>.js` を読み込む。認証系の画面（`login` / `signup` / `verify-email` / `reset-password`）は `js/validate.js` → `js/ui.js` を読み込み、画面の処理は HTML 内のインラインスクリプトに書かれている。共通処理はグローバル変数としてページから参照されるため、読み込み順が重要。
+- バンドラーもモジュールも使わない、素の JS によるマルチページ構成。各 HTML は通常の `<script>` タグで、まず `js/config.js`（`window.APP_CONFIG`）→ `js/api.js` を読み込む。ログイン後の画面はその後に `js/ui.js` →（`home`・`mypage` は `js/push.js`）→（`home`・`medications`・`logs` は `js/viewTarget.js`）→ `js/alarm.js` → `js/pages/<page>.js` を読み込む。認証系の画面（`login` / `signup` / `verify-email` / `reset-password`）は `js/validate.js` → `js/ui.js` を読み込み、画面の処理は HTML 内のインラインスクリプトに書かれている。共通処理はグローバル変数としてページから参照されるため、読み込み順が重要。
 - `api.js`: `Session`（localStorage のキー `okusuri_techo_session`）、`ApiError`（`code`/`status`/`field`）、fetch のラッパー。`/api/auth/refresh` でアクセストークンを自動更新する。更新処理は1つだけ実行して共有するため、同時に複数のリクエストがあってもリフレッシュトークンを使い切らない。
 - `ui.js`: トースト、`handleApiError`、`requireLoginOrRedirect`、ナビゲーション。
+- `viewTarget.js`（`ViewTarget`）: 表示する人（自分／見守っている家族）の切り替え。選んだ人は localStorage に保存し、ホーム・お薬・記録のタブで共有する。家族の表示中は `body.is-watching` になり、配色が変わる。
+- `alarm.js`（`MedAlarm`）: アプリを画面に表示しているあいだの服薬アラーム。各ページで `MedAlarm.start()` を呼ぶ。服薬時刻から60分以内の未記録の予定について、全画面の表示と繰り返しの音を出す。ホーム以外で「カメラを起動する」を押すと `home.html?take=<スケジュールID>` へ移動する。
 - `sw.js` は `public/` の直下に置いたままにする。アプリ全体をスコープに含めるため。
 - 高齢の利用者を想定しているので、平易で丁寧な日本語の文言と、大きく分かりやすい UI を優先する。
