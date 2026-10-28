@@ -68,6 +68,17 @@ async function ensureTodayLogs() {
   }
 }
 
+// 記録の予定時刻が、スケジュールの今の服薬時刻と同じか（その記録の日付で比べる）
+// 時刻を変えた日には、変更前の時刻の未記録が飲み忘れの履歴として残る（scheduleLogs.js）。
+// その記録は記録タブに「飲み忘れ」と出すだけにして、リマインドや家族への飲み忘れ通知は送らない
+// （例：8:10 に 8:00 の予定を 20:00 へ変えたのに、8:30 に家族へ「飲み忘れ」が届かないように）
+function isCurrentTimeLog(log) {
+  const scheduledTime = log.medication_schedules?.scheduled_time;
+  if (!scheduledTime) return true;
+  const logAt = new Date(log.scheduled_at);
+  return buildScheduledAt(jstToday(logAt).dateStr, scheduledTime).getTime() === logAt.getTime();
+}
+
 // 2. リマインド時刻（scheduled_time の reminder_minutes 分前）を過ぎた患者へ通知
 //    「±30秒以内」だけを対象にすると、Render のスリープや cron の遅れで1分飛んだだけで
 //    通知が永久に送られなくなる。そこで「リマインド時刻を過ぎていて、服薬時刻 + 30分より前で、
@@ -83,7 +94,7 @@ async function sendDueReminders() {
 
   const { data: pendingLogs, error } = await supabaseAdmin
     .from('medication_logs')
-    .select('id, scheduled_at, patient_id, medication_schedules!inner(reminder_minutes, medications(name))')
+    .select('id, scheduled_at, patient_id, medication_schedules!inner(reminder_minutes, scheduled_time, medications(name))')
     .eq('status', 'pending')
     .eq('medication_schedules.is_active', true) // 削除・停止した薬の記録には通知しない
     .gte('scheduled_at', `${today}T00:00:00${JST_OFFSET}`)
@@ -95,6 +106,7 @@ async function sendDueReminders() {
   }
 
   const dueLogs = (pendingLogs || []).filter((log) => {
+    if (!isCurrentTimeLog(log)) return false; // 時刻を変えた予定の、変更前の時刻の記録には送らない
     const reminderMinutes = log.medication_schedules?.reminder_minutes ?? 5;
     const scheduledAt = new Date(log.scheduled_at).getTime();
     const reminderAt = scheduledAt - reminderMinutes * 60 * 1000;
@@ -172,9 +184,9 @@ async function notifyMissedDoses() {
   const now = new Date();
   const thresholdTime = new Date(now.getTime() - MISSED_THRESHOLD_MINUTES * 60 * 1000);
 
-  const { data: overdueLogs, error } = await supabaseAdmin
+  const { data: rows, error } = await supabaseAdmin
     .from('medication_logs')
-    .select('id, patient_id, scheduled_at, status, medication_schedules!inner(is_active)')
+    .select('id, patient_id, scheduled_at, status, medication_schedules!inner(is_active, scheduled_time)')
     .eq('status', 'pending')
     .eq('medication_schedules.is_active', true) // 削除・停止した薬の記録には通知しない
     .lte('scheduled_at', thresholdTime.toISOString())
@@ -184,7 +196,9 @@ async function notifyMissedDoses() {
     console.error('[cron] 飲み忘れ対象取得エラー:', error);
     return;
   }
-  if (!overdueLogs || overdueLogs.length === 0) return;
+  // 時刻を変えた予定の、変更前の時刻の記録には通知しない（isCurrentTimeLog）
+  const overdueLogs = (rows || []).filter(isCurrentTimeLog);
+  if (overdueLogs.length === 0) return;
 
   const logIds = overdueLogs.map((l) => l.id);
   const { data: alreadyNotified, error: notifErr } = await supabaseAdmin
