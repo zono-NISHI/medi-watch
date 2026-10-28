@@ -135,7 +135,7 @@ async function loadTodaySchedules() {
     if ((ViewTarget.get() || SELF_TARGET).id !== target.id) return;
 
     const merged = mergeSchedulesWithLogs(schedules, logs);
-    renderSchedules(merged, target);
+    renderSchedules(merged, target, (schedules || []).length > 0);
     if (target.isSelf) lastMerged = merged;
   } catch (err) {
     container.innerHTML = `<p class="text-muted">読み込みに失敗しました。再読み込みしてください。</p>`;
@@ -156,12 +156,23 @@ function mergeSchedulesWithLogs(schedules, logs) {
       const log = (logs || []).find((l) => l.schedule_id === s.id);
       return { schedule: s, log };
     })
+    // 今日の服薬時刻を過ぎてから登録・変更した予定は、今日は出さない（明日から。サーバーの cron・アラームと同じ考え方）
+    .filter(({ schedule, log }) => log || !isChangedAfterDue(schedule))
     .sort((a, b) => a.schedule.scheduled_time.localeCompare(b.schedule.scheduled_time));
 }
 
-function renderSchedules(merged, target) {
+function renderSchedules(merged, target, hasSchedules) {
   const container = document.getElementById('schedule-list');
   const editable = target.isSelf; // 記録の操作は本人だけ
+
+  // お薬は登録されているが、今日の分がすべて明日からになっている場合
+  if (merged.length === 0 && hasSchedules) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <p>今日のお薬の予定はありません。<br />服薬時刻を過ぎてから登録・変更したお薬は、明日から表示されます。</p>
+      </div>`;
+    return;
+  }
 
   if (merged.length === 0) {
     // 自分のお薬が無く、まだ誰も見守っていない人には、見守りの始め方も案内する
@@ -226,6 +237,15 @@ function isPastDue(scheduledTime) {
   const [h, m] = scheduledTime.split(':').map(Number);
   const scheduled = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
   return now > scheduled;
+}
+
+// 今日の服薬時刻を過ぎてから登録・変更したスケジュールか（判定は isPastDue と同じく端末の時刻）
+function isChangedAfterDue(schedule) {
+  if (!schedule.updated_at) return false;
+  const now = new Date();
+  const [h, m] = schedule.scheduled_time.split(':').map(Number);
+  const scheduled = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+  return new Date(schedule.updated_at) > scheduled;
 }
 
 // 本文にも属性値（data-med-name="..."）にも使うため、引用符まで置き換える
