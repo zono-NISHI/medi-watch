@@ -152,7 +152,7 @@ function getUnitValue(picker) {
 }
 
 async function deleteMedication(id) {
-  if (!confirm('このお薬を削除しますか？')) return;
+  if (!confirm('このお薬を削除しますか？\nこれまでの服薬の記録は「記録」タブに残ります。')) return;
   try {
     await Api.deleteMedication(id);
     showToast('削除しました。', 'success');

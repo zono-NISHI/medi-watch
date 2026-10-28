@@ -83,8 +83,9 @@ async function sendDueReminders() {
 
   const { data: pendingLogs, error } = await supabaseAdmin
     .from('medication_logs')
-    .select('id, scheduled_at, patient_id, medication_schedules(reminder_minutes, medications(name))')
+    .select('id, scheduled_at, patient_id, medication_schedules!inner(reminder_minutes, medications(name))')
     .eq('status', 'pending')
+    .eq('medication_schedules.is_active', true) // 削除・停止した薬の記録には通知しない
     .gte('scheduled_at', `${today}T00:00:00${JST_OFFSET}`)
     .lte('scheduled_at', `${today}T23:59:59${JST_OFFSET}`);
 
@@ -173,8 +174,9 @@ async function notifyMissedDoses() {
 
   const { data: overdueLogs, error } = await supabaseAdmin
     .from('medication_logs')
-    .select('id, patient_id, scheduled_at, status')
+    .select('id, patient_id, scheduled_at, status, medication_schedules!inner(is_active)')
     .eq('status', 'pending')
+    .eq('medication_schedules.is_active', true) // 削除・停止した薬の記録には通知しない
     .lte('scheduled_at', thresholdTime.toISOString())
     .gte('scheduled_at', new Date(now.getTime() - DAY_MS).toISOString());
 

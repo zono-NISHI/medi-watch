@@ -14,6 +14,7 @@ router.use(requireAuth);
 // ----------------------------------------------------------
 // GET /api/medications
 // 自分（患者）の薬一覧、または閲覧権限のある患者の薬一覧
+// 削除した薬（is_active = false）は出さない
 // query: ?patient_id=xxx （介護者がグループの患者の薬を見る場合）
 // ----------------------------------------------------------
 router.get(
@@ -25,6 +26,7 @@ router.get(
       .from('medications')
       .select('*, medication_schedules(*)')
       .eq('patient_id', patientId)
+      .eq('is_active', true)
       .order('created_at', { ascending: false });
 
     if (error) return sendSupabaseError(res, error, '薬情報の取得に失敗しました。');
@@ -254,12 +256,38 @@ router.patch(
 
 // ----------------------------------------------------------
 // DELETE /api/medications/:id
+// 行は消さずに停止（is_active = false）にする。行を消すとスケジュール経由で
+// 服薬記録まで消えてしまうため（ON DELETE CASCADE）。
+// これからの「未記録」だけを消し、服薬済み・スキップ・飲み忘れ（予定時刻を過ぎた未記録）は履歴として残す。
 // ----------------------------------------------------------
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    const { error } = await req.supabase.from('medications').delete().eq('id', req.params.id);
+    const { error } = await req.supabase
+      .from('medications')
+      .update({ is_active: false })
+      .eq('id', req.params.id)
+      .select('id')
+      .single();
     if (error) return sendSupabaseError(res, error, '薬の削除に失敗しました。');
+
+    const { data: stopped, error: stopErr } = await req.supabase
+      .from('medication_schedules')
+      .update({ is_active: false })
+      .eq('medication_id', req.params.id)
+      .select('id');
+    if (stopErr) return sendSupabaseError(res, stopErr, 'スケジュールの停止に失敗しました。');
+
+    if (stopped.length > 0) {
+      const { error: logErr } = await req.supabase
+        .from('medication_logs')
+        .delete()
+        .in('schedule_id', stopped.map((s) => s.id))
+        .eq('status', 'pending')
+        .gt('scheduled_at', new Date().toISOString());
+      if (logErr) return sendSupabaseError(res, logErr, '未記録の予定の削除に失敗しました。');
+    }
+
     res.json({ message: '削除しました。' });
   })
 );
