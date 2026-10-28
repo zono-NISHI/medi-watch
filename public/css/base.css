@@ -283,6 +283,7 @@ textarea { min-height: 100px; resize: vertical; }
 .badge-pending { background: #f0e6d2; color: #8a6d3b; }
 .badge-taken { background: #e2ede7; color: var(--color-sage-deep); }
 .badge-skipped { background: #f3dedb; color: var(--color-clay-deep); }
+.badge-missed { background: var(--color-clay); color: var(--color-white); }
 
 /* ---- トースト通知 ---- */
 .toast-area {
