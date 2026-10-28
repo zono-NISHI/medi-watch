@@ -39,7 +39,7 @@ function renderMedications(medications) {
 
   container.innerHTML = medications
     .map((m) => {
-      const tags = (m.medication_schedules || [])
+      const tags = activeSchedules(m)
         .map((s) => `<span class="med-schedule-tag">${formatTime(s.scheduled_time)} ・ ${mealTimingLabel(s.meal_timing)}</span>`)
         .join('');
       return `
@@ -72,10 +72,53 @@ function renderMedications(medications) {
   );
 }
 
+// 外した（停止した）スケジュールは表示しない。時刻順に並べる
+function activeSchedules(medication) {
+  return (medication.medication_schedules || [])
+    .filter((s) => s.is_active !== false)
+    .sort((a, b) => a.scheduled_time.localeCompare(b.scheduled_time));
+}
+
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+// ---- 単位のプルダウン ----
+// 一覧にない単位は「その他」を選ぶと入力欄が出る（QRコードで読み取った単位もそのまま残せる）
+const UNIT_OPTIONS = ['錠', 'カプセル', '包', 'mL', 'g', '滴', '枚', '本', '個', '吸入', '回'];
+const UNIT_OTHER = '__other__';
+
+function unitOptionsHtml() {
+  return [
+    '<option value="">選んでください</option>',
+    ...UNIT_OPTIONS.map((u) => `<option value="${u}">${u}</option>`),
+    `<option value="${UNIT_OTHER}">その他（入力する）</option>`,
+  ].join('');
+}
+
+// picker: .unit-select と .unit-other を含む要素
+function setupUnitPicker(picker, value) {
+  const select = picker.querySelector('.unit-select');
+  const other = picker.querySelector('.unit-other');
+  const v = (value || '').trim();
+  const known = UNIT_OPTIONS.find((u) => u.toLowerCase() === v.toLowerCase()); // ml → mL など
+
+  select.innerHTML = unitOptionsHtml();
+  select.value = !v ? '' : known || UNIT_OTHER;
+  other.value = !v || known ? '' : v;
+  other.hidden = select.value !== UNIT_OTHER;
+
+  select.onchange = () => {
+    other.hidden = select.value !== UNIT_OTHER;
+    if (!other.hidden) other.focus();
+  };
+}
+
+function getUnitValue(picker) {
+  const select = picker.querySelector('.unit-select');
+  return select.value === UNIT_OTHER ? picker.querySelector('.unit-other').value.trim() : select.value;
 }
 
 async function deleteMedication(id) {
@@ -110,17 +153,19 @@ function openManualModal(id, knownMedications) {
   document.getElementById('manual-modal-title').textContent = id ? 'お薬を編集' : 'お薬を登録';
   manualForm.reset();
   scheduleRowsEl.innerHTML = '';
+  const unitPicker = document.getElementById('m-unit-picker');
 
   if (id) {
     const med = knownMedications.find((m) => m.id === id);
     if (med) {
       document.getElementById('m-name').value = med.name || '';
       document.getElementById('m-dosage').value = med.dosage || '';
-      document.getElementById('m-unit').value = med.unit || '';
+      setupUnitPicker(unitPicker, med.unit);
       document.getElementById('m-notes').value = med.notes || '';
-      (med.medication_schedules || []).forEach((s) => addScheduleRow(s));
+      activeSchedules(med).forEach((s) => addScheduleRow(s));
     }
   } else {
+    setupUnitPicker(unitPicker, '');
     addScheduleRow();
   }
 
@@ -130,6 +175,7 @@ function openManualModal(id, knownMedications) {
 function addScheduleRow(existing) {
   const row = document.createElement('div');
   row.className = 'schedule-row';
+  if (existing?.id) row.dataset.scheduleId = existing.id; // 編集時、既存のスケジュールを更新するため
   row.innerHTML = `
     <input type="time" class="s-time" value="${existing?.scheduled_time?.slice(0, 5) || '08:00'}" required />
     <select class="s-meal">
@@ -149,11 +195,12 @@ manualForm.addEventListener('submit', async (e) => {
   const payload = {
     name: document.getElementById('m-name').value.trim(),
     dosage: document.getElementById('m-dosage').value.trim(),
-    unit: document.getElementById('m-unit').value.trim(),
+    unit: getUnitValue(document.getElementById('m-unit-picker')),
     notes: document.getElementById('m-notes').value.trim(),
   };
 
   const schedules = [...scheduleRowsEl.querySelectorAll('.schedule-row')].map((row) => ({
+    ...(row.dataset.scheduleId ? { id: row.dataset.scheduleId } : {}),
     scheduled_time: row.querySelector('.s-time').value,
     meal_timing: row.querySelector('.s-meal').value,
     days_of_week: [0, 1, 2, 3, 4, 5, 6],
@@ -162,8 +209,8 @@ manualForm.addEventListener('submit', async (e) => {
 
   try {
     if (editingMedicationId) {
-      await Api.updateMedication(editingMedicationId, payload);
-      // 簡易実装: 編集時のスケジュール再設定は新規追加分のみ反映（既存削除はお薬一覧の編集UIでは扱わない）
+      // スケジュールも一緒に送り、時刻の変更・追加・「×」で外した分をまとめて反映する
+      await Api.updateMedication(editingMedicationId, { ...payload, schedules });
       showToast('更新しました。', 'success');
     } else {
       await Api.createMedication({ ...payload, schedules });
@@ -264,14 +311,16 @@ function showQrPreview(medications) {
             <label>用量</label>
             <input type="text" class="qr-edit-dosage" data-index="${i}" value="${escapeHtml(m.dosage || '')}" />
           </div>
-          <div class="field" style="flex:1">
+          <div class="field unit-picker" style="flex:1" data-unit="${escapeHtml(m.unit || '')}">
             <label>単位</label>
-            <input type="text" class="qr-edit-unit" data-index="${i}" value="${escapeHtml(m.unit || '')}" />
+            <select class="unit-select" aria-label="単位"></select>
+            <input type="text" class="unit-other" placeholder="単位を入力" aria-label="単位（その他）" hidden />
           </div>
         </div>
       </div>`
     )
     .join('');
+  qrPreviewList.querySelectorAll('.unit-picker').forEach((picker) => setupUnitPicker(picker, picker.dataset.unit));
 
   qrPreviewModal._data = medications;
   qrPreviewModal.showModal();
@@ -282,7 +331,7 @@ document.getElementById('qr-confirm-btn').addEventListener('click', async () => 
   const medications = rows.map((row, i) => ({
     name: row.querySelector('.qr-edit-name').value.trim(),
     dosage: row.querySelector('.qr-edit-dosage').value.trim(),
-    unit: row.querySelector('.qr-edit-unit').value.trim(),
+    unit: getUnitValue(row.querySelector('.unit-picker')),
   }));
 
   try {

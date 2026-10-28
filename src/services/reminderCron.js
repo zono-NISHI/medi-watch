@@ -23,7 +23,7 @@ async function ensureTodayLogs() {
 
   const { data: schedules, error } = await supabaseAdmin
     .from('medication_schedules')
-    .select('id, patient_id, scheduled_time, days_of_week, is_active')
+    .select('id, patient_id, scheduled_time, days_of_week, is_active, updated_at')
     .eq('is_active', true);
 
   if (error) {
@@ -37,18 +37,25 @@ async function ensureTodayLogs() {
   for (const schedule of todaySchedules) {
     const scheduledAt = buildScheduledAt(today, schedule.scheduled_time);
 
+    // 今日の服薬時刻を過ぎてから登録・変更されたスケジュールは、今日の分を作らない
+    // （作るとすぐに家族へ「飲み忘れ」が届いてしまうため。明日から記録する）
+    if (new Date(schedule.updated_at) > scheduledAt) continue;
+
+    // 1つのスケジュールにつき1日1件。時刻を変えた日に、変更前の時刻の記録（服薬済みなど）が
+    // あれば新しい時刻の分は作らない（同じ日に2回飲むことになってしまうため）
     const { data: existing, error: existErr } = await supabaseAdmin
       .from('medication_logs')
       .select('id')
       .eq('schedule_id', schedule.id)
-      .eq('scheduled_at', scheduledAt.toISOString())
-      .maybeSingle();
+      .gte('scheduled_at', `${today}T00:00:00${JST_OFFSET}`)
+      .lte('scheduled_at', `${today}T23:59:59${JST_OFFSET}`)
+      .limit(1);
 
     if (existErr) {
       console.error('[cron] 既存ログ確認エラー:', existErr);
       continue;
     }
-    if (existing) continue;
+    if (existing && existing.length > 0) continue;
 
     const { error: insertErr } = await supabaseAdmin.from('medication_logs').insert({
       schedule_id: schedule.id,

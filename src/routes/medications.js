@@ -6,6 +6,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
 const { parseJahisQr } = require('../services/jahisParser');
+const { syncTodayLog } = require('../lib/scheduleLogs');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -92,6 +93,8 @@ router.post(
         .select();
       if (schedErr) return sendSupabaseError(res, schedErr, 'スケジュールの登録に失敗しました。');
       insertedSchedules = schedData;
+      // cron を待たずに、今日の分を「記録」タブへすぐ出す
+      for (const schedule of insertedSchedules) await syncTodayLog(req.supabase, schedule);
     }
 
     res.status(201).json({ medication: { ...medication, medication_schedules: insertedSchedules } });
@@ -153,6 +156,12 @@ router.post(
 
 // ----------------------------------------------------------
 // PATCH /api/medications/:id
+// body: { name, dosage, unit, notes, start_date, end_date, is_active,
+//         schedules?: [{ id?, scheduled_time, meal_timing, days_of_week?, reminder_minutes? }] }
+// schedules を渡すと、服薬スケジュールをその内容にそろえる
+//   id あり → 時刻・食事との関係を更新 ／ id なし → 追加 ／ 渡されなかったもの → 停止
+// 外したスケジュールは削除せず停止（is_active = false）にする。削除すると
+// それまでの服薬記録まで消えてしまうため（medication_logs は ON DELETE CASCADE）。
 // ----------------------------------------------------------
 router.patch(
   '/:id',
@@ -171,7 +180,75 @@ router.patch(
       .single();
 
     if (error) return sendSupabaseError(res, error, '薬情報の更新に失敗しました。');
-    res.json({ medication: data });
+    if (!Array.isArray(req.body.schedules)) return res.json({ medication: data });
+
+    const { data: current, error: curErr } = await req.supabase
+      .from('medication_schedules')
+      .select('*')
+      .eq('medication_id', data.id)
+      .eq('is_active', true);
+    if (curErr) return sendSupabaseError(res, curErr, 'スケジュールの取得に失敗しました。');
+
+    const changed = []; // 今日の記録をそろえ直すスケジュール
+    const keepIds = new Set(req.body.schedules.filter((s) => s.id).map((s) => s.id));
+
+    const removedIds = current.filter((c) => !keepIds.has(c.id)).map((c) => c.id);
+    if (removedIds.length > 0) {
+      const { data: stopped, error: stopErr } = await req.supabase
+        .from('medication_schedules')
+        .update({ is_active: false })
+        .in('id', removedIds)
+        .select();
+      if (stopErr) return sendSupabaseError(res, stopErr, 'スケジュールの削除に失敗しました。');
+      changed.push(...stopped);
+    }
+
+    for (const s of req.body.schedules) {
+      if (s.id) {
+        const before = current.find((c) => c.id === s.id);
+        if (!before) continue;
+        // 変わっていない行は更新しない（updated_at を動かさないため。cron の判定に使う）
+        const timeChanged = String(before.scheduled_time).slice(0, 5) !== String(s.scheduled_time).slice(0, 5);
+        const mealChanged = !!s.meal_timing && before.meal_timing !== s.meal_timing;
+        if (!timeChanged && !mealChanged) continue;
+
+        const { data: updated, error: updErr } = await req.supabase
+          .from('medication_schedules')
+          .update({ scheduled_time: s.scheduled_time, meal_timing: s.meal_timing || before.meal_timing })
+          .eq('id', s.id)
+          .select()
+          .single();
+        if (updErr) return sendSupabaseError(res, updErr, 'スケジュールの更新に失敗しました。');
+        if (timeChanged) changed.push(updated);
+      } else {
+        const { data: inserted, error: insErr } = await req.supabase
+          .from('medication_schedules')
+          .insert({
+            medication_id: data.id,
+            patient_id: data.patient_id,
+            scheduled_time: s.scheduled_time,
+            days_of_week: s.days_of_week || [0, 1, 2, 3, 4, 5, 6],
+            meal_timing: s.meal_timing || 'after',
+            reminder_minutes: s.reminder_minutes ?? 5,
+          })
+          .select()
+          .single();
+        if (insErr) return sendSupabaseError(res, insErr, 'スケジュールの登録に失敗しました。');
+        changed.push(inserted);
+      }
+    }
+
+    for (const schedule of changed) await syncTodayLog(req.supabase, schedule);
+
+    const { data: schedules, error: listErr } = await req.supabase
+      .from('medication_schedules')
+      .select('*')
+      .eq('medication_id', data.id)
+      .eq('is_active', true)
+      .order('scheduled_time', { ascending: true });
+    if (listErr) return sendSupabaseError(res, listErr, 'スケジュールの取得に失敗しました。');
+
+    res.json({ medication: { ...data, medication_schedules: schedules } });
   })
 );
 
