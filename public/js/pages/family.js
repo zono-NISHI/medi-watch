@@ -4,8 +4,8 @@
 //  1つのアカウントで次の両方を扱う（登録時の役割では画面を分けない）。
 //    ・あなたが見守っているご家族 … 招待コードの入力、見守りをやめる
 //    ・あなたを見守っているご家族 … 招待コードの表示、映像閲覧の許可、見守りを外す
-//  2つが並ぶと見分けにくいため、プルダウンで選んだ側だけを表示する。
-//  マイページの「使う機能」で外した側（can_watch / can_be_watched）は選択肢に出さない。
+//  2つが並ぶと見分けにくいため、上部の2つの大きなボタンで選んだ側だけを表示する。
+//  マイページの「使う機能」で外した側（can_watch / can_be_watched）はボタンを出さない。
 //  最初に表示する側は ?show= → 前回選んだ側 → 登録時の役割（profile.role）の順で決める。
 // ============================================================
 
@@ -23,7 +23,7 @@ const canBeWatched = profile?.can_be_watched !== false;
 
 const els = {
   sections: document.getElementById('family-sections'),
-  viewSelect: document.getElementById('family-view-select'),
+  viewButtons: document.getElementById('family-view-buttons'),
   watchingSection: document.getElementById('watching-section'),
   watchersSection: document.getElementById('watchers-section'),
   watchingList: document.getElementById('watching-list'),
@@ -49,17 +49,18 @@ if (!canWatch && !canBeWatched) {
 }
 
 // ------------------------------------------------------------
-// 表示する側の切り替え（プルダウン）
+// 表示する側の切り替え（2つの大きなボタン）
 // ------------------------------------------------------------
 const FAMILY_VIEW_KEY = 'medi_watch_family_view';
 const sectionsByView = { watching: els.watchingSection, watchers: els.watchersSection };
+const viewButton = (view) => els.viewButtons.querySelector(`[data-view="${view}"]`);
 
-// 使わない設定の側は選択肢から外す（片方だけでも、同じプルダウンの形で見せる）
-if (!canWatch) els.viewSelect.querySelector('option[value="watching"]').remove();
-if (!canBeWatched) els.viewSelect.querySelector('option[value="watchers"]').remove();
-// 「見守られる側」として登録した人には、自分を見守っている人を先の選択肢にする
+// 使わない設定の側はボタンを外す（片方だけでも、同じボタンの形で見せる）
+if (!canWatch) viewButton('watching').remove();
+if (!canBeWatched) viewButton('watchers').remove();
+// 「見守られる側」として登録した人には、自分を見守っている人のボタンを左に置く
 if (!prefersWatching && canWatch && canBeWatched) {
-  els.viewSelect.prepend(els.viewSelect.querySelector('option[value="watchers"]'));
+  els.viewButtons.prepend(viewButton('watchers'));
 }
 
 function isAvailableView(view) {
@@ -67,7 +68,9 @@ function isAvailableView(view) {
 }
 
 function showView(view) {
-  els.viewSelect.value = view;
+  els.viewButtons.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.view === view));
+  });
   Object.entries(sectionsByView).forEach(([key, section]) => {
     section.hidden = key !== view;
   });
@@ -76,11 +79,16 @@ function showView(view) {
 let savedView = null;
 try { savedView = localStorage.getItem(FAMILY_VIEW_KEY); } catch { /* 保存できなくても動く */ }
 const requestedView = new URLSearchParams(location.search).get('show');
-showView([requestedView, savedView].find(isAvailableView) || els.viewSelect.options[0].value);
+showView(
+  [requestedView, savedView].find(isAvailableView)
+    || els.viewButtons.querySelector('[data-view]').dataset.view
+);
 
-els.viewSelect.addEventListener('change', () => {
-  showView(els.viewSelect.value);
-  try { localStorage.setItem(FAMILY_VIEW_KEY, els.viewSelect.value); } catch { /* noop */ }
+els.viewButtons.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-view]');
+  if (!btn) return;
+  showView(btn.dataset.view);
+  try { localStorage.setItem(FAMILY_VIEW_KEY, btn.dataset.view); } catch { /* noop */ }
 });
 
 let firstLoad = true;
