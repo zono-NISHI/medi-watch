@@ -27,11 +27,31 @@
           <label for="p-phone">電話番号（任意）</label>
           <input type="tel" id="p-phone" placeholder="緊急連絡先など" />
         </div>
-        <div class="field">
-          <label>役割</label>
-          <p id="p-role" class="text-muted" style="margin:0;"></p>
-        </div>
         <button type="submit" class="btn btn-accent">保存する</button>
+      </form>
+    </section>
+
+    <!-- 使う機能（見守る／見守ってもらう）。どちらも外すと「自分のお薬の管理だけ」になる -->
+    <section class="card" style="margin-top: var(--space-3);">
+      <h2>使う機能</h2>
+      <p class="text-sm text-muted">ご自分のお薬の記録は、いつでも使えます。ご家族とのつながり方を選んでください。</p>
+      <form id="features-form" class="stack">
+        <div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="f-be-watched" />
+            <strong>家族に見守ってもらう</strong>
+          </label>
+          <p class="text-sm text-muted" style="margin:0;">招待コードをご家族に伝えて、お薬を飲んだかどうかを見てもらいます。</p>
+        </div>
+        <div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="f-watch" />
+            <strong>家族を見守る</strong>
+          </label>
+          <p class="text-sm text-muted" style="margin:0;">ご家族の招待コードを入力して、ご家族の服薬を見守ります。</p>
+        </div>
+        <p id="f-summary" class="text-sm" style="margin:0;" aria-live="polite"></p>
+        <button type="submit" class="btn btn-outline">使う機能を保存する</button>
       </form>
     </section>
 

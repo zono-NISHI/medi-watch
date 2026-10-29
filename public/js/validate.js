@@ -24,9 +24,9 @@ const Validate = {
     if (v.length > 72) return 'パスワードは72文字以内で入力してください。';
     return null;
   },
-  role(v) {
-    if (!['patient', 'caregiver'].includes(v)) {
-      return 'ご利用の立場を選択してください。';
+  usage(v) {
+    if (!['watched', 'watcher', 'self'].includes(v)) {
+      return '使い方を選択してください。';
     }
     return null;
   },

@@ -49,7 +49,7 @@ function renderBottomNav(activeKey) {
     // 1つのアカウントで「見守る」「見守られる」の両方を行うため、役割によらず同じ名前にする
     { key: 'family', href: 'family.html', label: '見守り', icon: iconUsers() },
     { key: 'mypage', href: 'mypage.html', label: 'マイページ', icon: iconUser() },
-  ];
+  ].filter((item) => item.key !== 'family' || usesFamilyFeatures());
 
   const nav = document.createElement('nav');
   nav.className = 'bottom-nav';
@@ -64,6 +64,14 @@ function renderBottomNav(activeKey) {
     )
     .join('');
   document.body.appendChild(nav);
+}
+
+// 「見守る」「見守ってもらう」のどちらかを使う設定か（どちらも使わないなら「見守り」タブを出さない）
+// プロフィールをまだ取得していないときは、出しておく
+function usesFamilyFeatures() {
+  const profile = Session.profile();
+  if (!profile) return true;
+  return profile.can_watch !== false || profile.can_be_watched !== false;
 }
 
 function iconHome() {

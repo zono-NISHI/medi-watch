@@ -12,7 +12,10 @@ MedAlarm.start(); // 服薬時刻になったら、この画面でもアラー�
 const profileForm = document.getElementById('profile-form');
 const nameInput = document.getElementById('p-name');
 const phoneInput = document.getElementById('p-phone');
-const roleEl = document.getElementById('p-role');
+const featuresForm = document.getElementById('features-form');
+const beWatchedInput = document.getElementById('f-be-watched');
+const watchInput = document.getElementById('f-watch');
+const featuresSummary = document.getElementById('f-summary');
 
 // プロフィール読み込み
 (async () => {
@@ -22,11 +25,60 @@ const roleEl = document.getElementById('p-role');
     Session.set(current.session, current.user, profile);
     nameInput.value = profile.name || '';
     phoneInput.value = profile.phone || '';
-    roleEl.textContent = profile.role === 'patient' ? '患者本人' : '家族・介護者';
+    beWatchedInput.checked = profile.can_be_watched !== false;
+    watchInput.checked = profile.can_watch !== false;
+    renderFeaturesSummary();
   } catch (err) {
     handleApiError(err, 'プロフィールの取得に失敗しました。');
   }
 })();
+
+// ---- 使う機能（見守る／見守ってもらう） ----
+function renderFeaturesSummary() {
+  const parts = [];
+  if (beWatchedInput.checked) parts.push('ご家族に見守ってもらう');
+  if (watchInput.checked) parts.push('ご家族を見守る');
+  featuresSummary.textContent = parts.length
+    ? `いまの設定：自分のお薬の記録 ＋ ${parts.join('・')}`
+    : 'いまの設定：自分のお薬の管理だけ（「見守り」のボタンは表示されません）';
+}
+
+beWatchedInput.addEventListener('change', renderFeaturesSummary);
+watchInput.addEventListener('change', renderFeaturesSummary);
+
+featuresForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const before = Session.profile();
+  const payload = { can_be_watched: beWatchedInput.checked, can_watch: watchInput.checked };
+
+  // 新しく見守る機能を使い始めるときは、念のため確認する（ご本人の押し間違いを防ぐ）
+  if (payload.can_watch && before?.can_watch === false) {
+    const ok = window.confirm(
+      '「家族を見守る」を使えるようにしますか？\n「見守り」画面に、ご家族の招待コードを入力する欄が表示されます。'
+    );
+    if (!ok) return;
+  }
+
+  const submitBtn = featuresForm.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  try {
+    const { profile } = await Api.updateMe(payload);
+    const current = Session.get();
+    Session.set(current.session, current.user, profile);
+    showToast('使う機能を保存しました。', 'success');
+    // 下のボタン（「見守り」の表示・非表示）を新しい設定で描き直す
+    document.querySelector('.bottom-nav')?.remove();
+    renderBottomNav('mypage');
+  } catch (err) {
+    // 見守りの相手がいて外せなかった場合などは、元の設定に戻す
+    beWatchedInput.checked = before?.can_be_watched !== false;
+    watchInput.checked = before?.can_watch !== false;
+    renderFeaturesSummary();
+    handleApiError(err, '使う機能の保存に失敗しました。');
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
 
 profileForm.addEventListener('submit', async (e) => {
   e.preventDefault();

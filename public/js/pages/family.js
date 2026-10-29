@@ -5,6 +5,7 @@
 //    ・あなたが見守っているご家族 … 招待コードの入力、見守りをやめる
 //    ・あなたを見守っているご家族 … 招待コードの表示、映像閲覧の許可、見守りを外す
 //  登録時の役割（profile.role）は「どちらを上に表示するか」だけに使う。
+//  マイページの「使う機能」で外した側（can_watch / can_be_watched）は表示しない。
 // ============================================================
 
 if (!requireLoginOrRedirect()) {
@@ -16,6 +17,8 @@ MedAlarm.start(); // 服薬時刻になったら、この画面でもアラー�
 
 const profile = Session.profile();
 const prefersWatching = profile?.role === 'caregiver';
+const canWatch = profile?.can_watch !== false;
+const canBeWatched = profile?.can_be_watched !== false;
 
 const els = {
   sections: document.getElementById('family-sections'),
@@ -38,28 +41,49 @@ if (!prefersWatching) {
   els.sections.insertBefore(els.watchersSection, els.watchingSection);
 }
 
+// 使わない設定の側は、画面に出さない（押し間違いを防ぐ）
+els.watchingSection.hidden = !canWatch;
+els.watchersSection.hidden = !canBeWatched;
+if (!canWatch && !canBeWatched) {
+  els.sections.innerHTML = `
+    <div class="card">
+      <p>いまは「自分のお薬の管理だけ」の設定です。</p>
+      <p class="text-sm text-muted">ご家族と見守り合うには、マイページの「使う機能」で設定を変えてください。</p>
+      <a href="mypage.html" class="btn btn-outline">マイページを開く</a>
+    </div>`;
+  throw new Error('見守りの機能を使わない設定');
+}
+
 let firstLoad = true;
 
 loadAll();
 
 async function loadAll() {
+  const empty = (key) => Promise.resolve({ [key]: [] });
   const [mine, watchers, watching] = await Promise.allSettled([
-    Api.getMyCareGroup(),
-    Api.listWatchers(),
-    Api.listWatching(),
+    canBeWatched ? Api.getMyCareGroup() : Promise.resolve({ group: null }),
+    canBeWatched ? Api.listWatchers() : empty('watchers'),
+    canWatch ? Api.listWatching() : empty('watching'),
   ]);
 
-  renderInviteCode(mine.status === 'fulfilled' ? mine.value.group : undefined);
-  renderWatchers(watchers.status === 'fulfilled' ? watchers.value.watchers : null);
-  renderWatching(watching.status === 'fulfilled' ? watching.value.watching : null);
+  if (canBeWatched) {
+    renderInviteCode(mine.status === 'fulfilled' ? mine.value.group : undefined);
+    renderWatchers(watchers.status === 'fulfilled' ? watchers.value.watchers : null);
+  }
+  if (canWatch) {
+    renderWatching(watching.status === 'fulfilled' ? watching.value.watching : null);
+  }
 
   // 初回だけ、まだ何もしていない側の入力欄を開いておく
+  // （片方の機能だけ使う人は、その側を開く）
   if (firstLoad) {
     firstLoad = false;
     const noWatching = watching.status === 'fulfilled' && watching.value.watching.length === 0;
     const noWatchers = watchers.status === 'fulfilled' && watchers.value.watchers.length === 0;
-    if (prefersWatching && noWatching) els.joinFold.open = true;
-    if (!prefersWatching && noWatchers) els.inviteFold.open = true;
+    const openJoin = canWatch && (prefersWatching || !canBeWatched);
+    const openInvite = canBeWatched && (!prefersWatching || !canWatch);
+    if (openJoin && noWatching) els.joinFold.open = true;
+    if (openInvite && noWatchers) els.inviteFold.open = true;
   }
 }
 

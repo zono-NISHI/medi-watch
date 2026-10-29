@@ -56,9 +56,15 @@
   border: none;
   margin: 0; padding: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: var(--space-2);
 }
+.role-legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font-weight: 700;
+}
+.role-note { margin: 0; }
 
 .role-option { position: relative; }
 .role-option input {
@@ -89,9 +95,6 @@
   outline-offset: 2px;
 }
 
-@media (max-width: 420px) {
-  .role-select { grid-template-columns: 1fr; }
-}
 
 /* ---- パスワード表示切替 ---- */
 .password-wrap {
