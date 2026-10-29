@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ブランチ運用: 作業は必ず `feature/xxxx` ブランチで行い、`develop` へPRを出してマージする。`main` はアプリ完成時に `develop` からマージする予定のため、それまでは `main` への直接のコミット・push・マージは行わない。
 - デプロイ: Render。`develop` へのマージで自動デプロイされる（つまり develop へのマージ＝本番反映）。
 - メール送信: Brevo を使用（Supabase Auth の SMTP 経由。テンプレートは `src/supabase/templates/`）。
+- アプリの挙動（画面の表示・文言・操作の流れなど、利用者から見て変わること）を修正・追加したときは、ルートの `利用者目線のアプリ挙動一覧.md` の該当箇所も同じ作業の中で更新し、ソースコードと食い違わないようにする。変更したファイルの一覧にも含めること。
 - `docs/` の資料は卒論の参考資料であり、実装の根拠には使わない。仕様・挙動はソースコードとマイグレーションを正とする（`docs/` 内の README は古い記述を含む）。
 
 ## Git操作について

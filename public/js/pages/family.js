@@ -4,8 +4,9 @@
 //  1つのアカウントで次の両方を扱う（登録時の役割では画面を分けない）。
 //    ・あなたが見守っているご家族 … 招待コードの入力、見守りをやめる
 //    ・あなたを見守っているご家族 … 招待コードの表示、映像閲覧の許可、見守りを外す
-//  登録時の役割（profile.role）は「どちらを上に表示するか」だけに使う。
-//  マイページの「使う機能」で外した側（can_watch / can_be_watched）は表示しない。
+//  2つが並ぶと見分けにくいため、プルダウンで選んだ側だけを表示する。
+//  マイページの「使う機能」で外した側（can_watch / can_be_watched）は選択肢に出さない。
+//  最初に表示する側は ?show= → 前回選んだ側 → 登録時の役割（profile.role）の順で決める。
 // ============================================================
 
 if (!requireLoginOrRedirect()) {
@@ -22,6 +23,7 @@ const canBeWatched = profile?.can_be_watched !== false;
 
 const els = {
   sections: document.getElementById('family-sections'),
+  viewSelect: document.getElementById('family-view-select'),
   watchingSection: document.getElementById('watching-section'),
   watchersSection: document.getElementById('watchers-section'),
   watchingList: document.getElementById('watching-list'),
@@ -36,14 +38,6 @@ const els = {
   copyBtn: document.getElementById('copy-code-btn'),
 };
 
-// 「見守られる側」として登録した人には、自分を見守っている人を先に見せる
-if (!prefersWatching) {
-  els.sections.insertBefore(els.watchersSection, els.watchingSection);
-}
-
-// 使わない設定の側は、画面に出さない（押し間違いを防ぐ）
-els.watchingSection.hidden = !canWatch;
-els.watchersSection.hidden = !canBeWatched;
 if (!canWatch && !canBeWatched) {
   els.sections.innerHTML = `
     <div class="card">
@@ -53,6 +47,41 @@ if (!canWatch && !canBeWatched) {
     </div>`;
   throw new Error('見守りの機能を使わない設定');
 }
+
+// ------------------------------------------------------------
+// 表示する側の切り替え（プルダウン）
+// ------------------------------------------------------------
+const FAMILY_VIEW_KEY = 'medi_watch_family_view';
+const sectionsByView = { watching: els.watchingSection, watchers: els.watchersSection };
+
+// 使わない設定の側は選択肢から外す（片方だけでも、同じプルダウンの形で見せる）
+if (!canWatch) els.viewSelect.querySelector('option[value="watching"]').remove();
+if (!canBeWatched) els.viewSelect.querySelector('option[value="watchers"]').remove();
+// 「見守られる側」として登録した人には、自分を見守っている人を先の選択肢にする
+if (!prefersWatching && canWatch && canBeWatched) {
+  els.viewSelect.prepend(els.viewSelect.querySelector('option[value="watchers"]'));
+}
+
+function isAvailableView(view) {
+  return (view === 'watching' && canWatch) || (view === 'watchers' && canBeWatched);
+}
+
+function showView(view) {
+  els.viewSelect.value = view;
+  Object.entries(sectionsByView).forEach(([key, section]) => {
+    section.hidden = key !== view;
+  });
+}
+
+let savedView = null;
+try { savedView = localStorage.getItem(FAMILY_VIEW_KEY); } catch { /* 保存できなくても動く */ }
+const requestedView = new URLSearchParams(location.search).get('show');
+showView([requestedView, savedView].find(isAvailableView) || els.viewSelect.options[0].value);
+
+els.viewSelect.addEventListener('change', () => {
+  showView(els.viewSelect.value);
+  try { localStorage.setItem(FAMILY_VIEW_KEY, els.viewSelect.value); } catch { /* noop */ }
+});
 
 let firstLoad = true;
 
@@ -74,16 +103,14 @@ async function loadAll() {
     renderWatching(watching.status === 'fulfilled' ? watching.value.watching : null);
   }
 
-  // 初回だけ、まだ何もしていない側の入力欄を開いておく
-  // （片方の機能だけ使う人は、その側を開く）
+  // 初回だけ、まだ誰もいない側の入力欄を開いておく
+  // （表示されるのは選んだ側だけなので、両方開いても散らからない）
   if (firstLoad) {
     firstLoad = false;
     const noWatching = watching.status === 'fulfilled' && watching.value.watching.length === 0;
     const noWatchers = watchers.status === 'fulfilled' && watchers.value.watchers.length === 0;
-    const openJoin = canWatch && (prefersWatching || !canBeWatched);
-    const openInvite = canBeWatched && (!prefersWatching || !canWatch);
-    if (openJoin && noWatching) els.joinFold.open = true;
-    if (openInvite && noWatchers) els.inviteFold.open = true;
+    if (canWatch && noWatching) els.joinFold.open = true;
+    if (canBeWatched && noWatchers) els.inviteFold.open = true;
   }
 }
 
