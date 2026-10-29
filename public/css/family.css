@@ -45,15 +45,38 @@
   padding: var(--space-3);
 }
 .family-switch-label {
-  display: block;
   font-weight: 700;
   font-size: var(--fs-base);
-  margin-bottom: var(--space-1);
+  margin: 0 0 var(--space-2);
 }
-.family-switch select {
+.family-switch-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+.family-switch-btn {
+  flex: 1 1 0;
+  min-height: calc(var(--tap-min) * 1.5);
+  padding: var(--space-2);
+  border: 2px solid var(--color-indigo);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  color: var(--color-indigo-deep);
   font-size: var(--fs-base);
   font-weight: 700;
-  color: var(--color-indigo-deep);
+  line-height: 1.4;
+  cursor: pointer;
+}
+/* 選んでいる側は塗りつぶし＋チェックで、色だけに頼らず示す */
+.family-switch-btn[aria-pressed="true"] {
+  background: var(--color-indigo);
+  color: var(--color-white);
+}
+.family-switch-btn[aria-pressed="true"]::before {
+  content: '✓ ';
+}
+.family-switch-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(44, 74, 82, 0.25);
 }
 
 /* 招待コード・コード入力の折りたたみ */

@@ -19,12 +19,16 @@
     <div id="family-sections" class="stack">
 
       <!-- ===== どちらの情報を表示するかの切り替え ===== -->
-      <div class="card family-switch">
-        <label class="family-switch-label" for="family-view-select">表示する内容を選んでください</label>
-        <select id="family-view-select">
-          <option value="watching">あなたが見守っているご家族</option>
-          <option value="watchers">あなたを見守っているご家族</option>
-        </select>
+      <div class="card family-switch" role="group" aria-labelledby="family-switch-label">
+        <p class="family-switch-label" id="family-switch-label">表示する内容を選んでください</p>
+        <div class="family-switch-buttons" id="family-view-buttons">
+          <button type="button" class="family-switch-btn" data-view="watching" aria-pressed="false">
+            あなたが<br />見守っているご家族
+          </button>
+          <button type="button" class="family-switch-btn" data-view="watchers" aria-pressed="false">
+            あなたを<br />見守っているご家族
+          </button>
+        </div>
       </div>
 
       <!-- ===== 見守る側：自分が見守っているご家族 ===== -->
