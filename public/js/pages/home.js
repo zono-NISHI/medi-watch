@@ -180,7 +180,7 @@ function renderSchedules(merged, target, hasSchedules) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-45 12 12)"/></svg>
         <p>${editable ? '登録されているお薬がまだありません。' : `${escapeHtml(target.label)}のお薬はまだ登録されていません。`}</p>
         ${editable ? '<a href="medications.html" class="btn btn-accent btn--auto">お薬を登録する</a>' : ''}
-        ${showJoinHint ? '<a href="family.html" class="btn btn-outline btn--auto">ご家族を見守る（招待コードを入力）</a>' : ''}
+        ${showJoinHint ? '<a href="family.html?show=watching" class="btn btn-outline btn--auto">ご家族を見守る（招待コードを入力）</a>' : ''}
       </div>`;
     return;
   }

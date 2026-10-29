@@ -18,9 +18,18 @@
 
     <div id="family-sections" class="stack">
 
+      <!-- ===== どちらの情報を表示するかの切り替え ===== -->
+      <div class="card family-switch">
+        <label class="family-switch-label" for="family-view-select">表示する内容を選んでください</label>
+        <select id="family-view-select">
+          <option value="watching">あなたが見守っているご家族</option>
+          <option value="watchers">あなたを見守っているご家族</option>
+        </select>
+      </div>
+
       <!-- ===== 見守る側：自分が見守っているご家族 ===== -->
       <section id="watching-section" class="stack" aria-labelledby="watching-heading">
-        <h2 id="watching-heading" class="section-heading">あなたが見守っているご家族</h2>
+        <h2 id="watching-heading" class="sr-only">あなたが見守っているご家族</h2>
 
         <div id="watching-list" class="stack stack--tight">
           <p class="text-muted">読み込み中…</p>
@@ -42,7 +51,7 @@
 
       <!-- ===== 見守られる側：自分を見守っているご家族 ===== -->
       <section id="watchers-section" class="stack" aria-labelledby="watchers-heading">
-        <h2 id="watchers-heading" class="section-heading">あなたを見守っているご家族</h2>
+        <h2 id="watchers-heading" class="sr-only">あなたを見守っているご家族</h2>
 
         <details class="card card--warm fold" id="invite-fold">
           <summary class="fold-summary">あなたの招待コード</summary>

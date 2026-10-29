@@ -40,8 +40,20 @@
 
 /* ---- 相互見守り（0004）で追加 ---- */
 
-.section-heading {
-  margin: var(--space-2) 0 0;
+/* 「あなたが見守っている／あなたを見守っている」ご家族の表示切り替え */
+.family-switch {
+  padding: var(--space-3);
+}
+.family-switch-label {
+  display: block;
+  font-weight: 700;
+  font-size: var(--fs-base);
+  margin-bottom: var(--space-1);
+}
+.family-switch select {
+  font-size: var(--fs-base);
+  font-weight: 700;
+  color: var(--color-indigo-deep);
 }
 
 /* 招待コード・コード入力の折りたたみ */
