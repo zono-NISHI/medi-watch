@@ -173,7 +173,8 @@ function renderSchedules(merged, target, hasSchedules) {
 
   if (merged.length === 0) {
     // 自分のお薬が無く、まだ誰も見守っていない人には、見守りの始め方も案内する
-    const showJoinHint = target.isSelf && !ViewTarget.hasFamily();
+    // （「家族を見守る」を使わない設定の人には出さない）
+    const showJoinHint = target.isSelf && !ViewTarget.hasFamily() && profile.can_watch !== false;
     container.innerHTML = `
       <div class="empty-state">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-45 12 12)"/></svg>

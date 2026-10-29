@@ -15,11 +15,14 @@ const ViewTarget = (() => {
   async function init() {
     const profile = Session.profile();
     const self = { id: profile.id, label: '自分', isSelf: true, canViewVideo: true };
+    // 「家族を見守る」を使わない設定の人は、切り替えを出さず自分だけを表示する
     let watching = [];
-    try {
-      ({ watching } = await Api.listWatching());
-    } catch (err) {
-      console.error('見守り中のご家族を取得できませんでした:', err);
+    if (profile?.can_watch !== false) {
+      try {
+        ({ watching } = await Api.listWatching());
+      } catch (err) {
+        console.error('見守り中のご家族を取得できませんでした:', err);
+      }
     }
 
     targets = [

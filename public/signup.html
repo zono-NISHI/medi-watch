@@ -25,22 +25,32 @@
           <div class="form-error__actions" id="form-error-actions" hidden></div>
         </div>
 
+        <!-- 使い方によって、使える機能（見守る／見守ってもらう）が決まる。
+             お薬を飲むご本人が迷わないよう、見守る操作は「家族を見守る」を選んだ人にだけ出す。 -->
         <fieldset class="role-select">
-          <legend class="visually-hidden">どちらで使いますか</legend>
+          <legend class="role-legend">どのように使いますか</legend>
           <label class="role-option">
-            <input type="radio" name="role" value="patient" checked />
+            <input type="radio" name="usage" value="watched" checked />
             <span class="role-card">
-              <strong>お薬を飲む本人として</strong>
-              <span class="text-sm text-muted">服薬の記録をつけます</span>
+              <strong>家族に見守ってもらう</strong>
+              <span class="text-sm text-muted">お薬の記録をつけて、飲んだかどうかをご家族に見てもらいます</span>
             </span>
           </label>
           <label class="role-option">
-            <input type="radio" name="role" value="caregiver" />
+            <input type="radio" name="usage" value="self" />
             <span class="role-card">
-              <strong>家族・介護者として</strong>
-              <span class="text-sm text-muted">大切な人の服薬を見守ります</span>
+              <strong>自分のお薬の管理だけ</strong>
+              <span class="text-sm text-muted">お薬の記録だけをつけます。ご家族とはつながりません</span>
             </span>
           </label>
+          <label class="role-option">
+            <input type="radio" name="usage" value="watcher" />
+            <span class="role-card">
+              <strong>家族を見守る</strong>
+              <span class="text-sm text-muted">ご家族の服薬を見守ります。ご自分のお薬の記録もできます</span>
+            </span>
+          </label>
+          <p class="text-sm text-muted role-note">あとから「マイページ」で変更できます。</p>
         </fieldset>
 
         <div class="field">
@@ -230,7 +240,7 @@
           name: (fd.get('name') ?? '').trim(),
           email: (fd.get('email') ?? '').trim(),
           password: fd.get('password') ?? '',
-          role: fd.get('role') ?? '',
+          usage: fd.get('usage') ?? '',
         };
 
         // ---- 送信前の検証 ----
@@ -239,7 +249,7 @@
           email: Validate.email(payload.email),
           password: Validate.password(payload.password),
         };
-        const roleError = Validate.role(payload.role);
+        const usageError = Validate.usage(payload.usage);
 
         let firstInvalid = null;
         for (const [field, message] of Object.entries(errors)) {
@@ -248,10 +258,10 @@
             firstInvalid = firstInvalid || form.elements[field];
           }
         }
-        if (roleError) {
-          showFormError({ title: '入力の内容をご確認ください', text: roleError });
+        if (usageError) {
+          showFormError({ title: '入力の内容をご確認ください', text: usageError });
         }
-        if (firstInvalid || roleError) {
+        if (firstInvalid || usageError) {
           firstInvalid?.focus();
           return;
         }

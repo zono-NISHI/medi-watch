@@ -217,10 +217,21 @@ async function sendMailAndRespond(res, { tag, send, successMessage }) {
   return res.json({ message: successMessage });
 }
 
+// 登録画面で選んだ「使い方」→ プロフィールに保存する内容
+//   ・watched : 自分のお薬を記録し、家族に見守ってもらう（高齢の方向け。見守る操作は出さない）
+//   ・watcher : 家族の服薬を見守る（自分のお薬の記録もできる）
+//   ・self    : 自分のお薬の管理だけ
+// 登録後も、マイページの「使う機能」で変更できる。
+const SIGNUP_USAGES = {
+  watched: { role: 'patient', can_watch: false, can_be_watched: true },
+  watcher: { role: 'caregiver', can_watch: true, can_be_watched: false },
+  self: { role: 'patient', can_watch: false, can_be_watched: false },
+};
+
 // ----------------------------------------------------------
 // POST /api/auth/signup
-// 新規ユーザー登録（患者 or 介護者）
-// body: { email, password, name, role: 'patient' | 'caregiver' }
+// 新規ユーザー登録
+// body: { email, password, name, usage: 'watched' | 'watcher' | 'self' }
 // ----------------------------------------------------------
 router.post(
   '/signup',
@@ -229,7 +240,7 @@ router.post(
     const email = normalizeEmail(req.body.email);
     const name = String(req.body.name ?? '').trim();
     const password = String(req.body.password ?? '');
-    const role = String(req.body.role ?? '');
+    const usage = SIGNUP_USAGES[String(req.body.usage ?? '')];
 
     // 検証エラーは field を返し、フロント側で該当欄に赤字を出せるようにする
     const invalid = (field, message) =>
@@ -238,10 +249,7 @@ router.post(
     if (!name) return invalid('name', 'お名前を入力してください。');
     if (name.length > 50) return invalid('name', 'お名前は50文字以内で入力してください。');
     if (!email) return invalid('email', 'メールアドレスを入力してください。');
-    if (!role) return invalid('role', 'ご利用の立場を選択してください。');
-    if (!['patient', 'caregiver'].includes(role)) {
-      return invalid('role', 'ご利用の立場を選択してください。');
-    }
+    if (!usage) return invalid('usage', '使い方を選択してください。');
     const passwordError = validatePassword(password);
     if (passwordError) return invalid('password', passwordError);
 
@@ -253,7 +261,7 @@ router.post(
         email,
         password,
         options: {
-          data: { name, role },
+          data: { name, ...usage },
         },
       }));
     } catch (e) {
@@ -605,16 +613,25 @@ router.get(
 
 // ----------------------------------------------------------
 // PATCH /api/auth/me
-// プロフィール更新（氏名・電話番号）
+// プロフィール更新（氏名・電話番号・使う機能）
+//   can_watch / can_be_watched は、見守りの相手がいるあいだは OFF にできない
+//   （DBのトリガーが止め、sendSupabaseError が STILL_WATCHING などを返す）
 // ----------------------------------------------------------
 router.patch(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { name, phone } = req.body;
+    const { name, phone, can_watch, can_be_watched } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (phone !== undefined) updates.phone = phone;
+    for (const [key, value] of Object.entries({ can_watch, can_be_watched })) {
+      if (value === undefined) continue;
+      if (typeof value !== 'boolean') {
+        return res.status(400).json({ code: 'VALIDATION_ERROR', error: '使う機能の設定が正しくありません。' });
+      }
+      updates[key] = value;
+    }
 
     const { data, error } = await req.supabase
       .from('profiles')
