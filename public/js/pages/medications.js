@@ -272,6 +272,26 @@ document.getElementById('open-qr-btn').addEventListener('click', async () => {
   }
 });
 
+// jsQR の結果からQRコードの文字列を取り出す。
+// JAHIS形式（お薬手帳）のQRコードは Shift_JIS で書かれているが、jsQR は UTF-8 として
+// 読もうとして失敗すると code.data を空にしてしまう（読み取れているのに反応しない原因）。
+// そのため、元のバイト列（code.binaryData）から自分で文字に戻す。
+// 順番は UTF-8 → Shift_JIS。Shift_JIS のデータを UTF-8 として読むとほぼ必ずエラーになるが、
+// 逆（UTF-8 のデータを Shift_JIS として読む）はエラーにならず文字化けすることがあるため。
+function decodeQrText(code) {
+  const bytes = code.binaryData && code.binaryData.length ? new Uint8Array(code.binaryData) : null;
+  if (bytes) {
+    for (const encoding of ['utf-8', 'shift_jis']) {
+      try {
+        return new TextDecoder(encoding, { fatal: true }).decode(bytes);
+      } catch (_) {
+        // この文字コードでは読めない（またはブラウザが未対応）ので次を試す
+      }
+    }
+  }
+  return code.data || '';
+}
+
 function startQrScanning() {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -283,10 +303,13 @@ function startQrScanning() {
       ctx.drawImage(qrVideo, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = window.jsQR(imageData.data, imageData.width, imageData.height);
-      if (code && code.data) {
+      const text = code ? decodeQrText(code) : '';
+      if (text) {
+        // 動作確認用: 読み取った内容を開発者ツールで確認できるようにする（パーサー調整後に削除予定）
+        console.info('[QR] 読み取った内容:', text);
         stopQrScanning();
         qrModal.close();
-        handleQrData(code.data);
+        handleQrData(text);
         return;
       }
     }
