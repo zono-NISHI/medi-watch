@@ -7,6 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - コマンド実行の確認時に表示する説明文（ツール呼び出しの description など）も日本語で書く。
 - ブランチ運用: 作業は必ず `feature/xxxx` ブランチで行い、`develop` へPRを出してマージする。`main` はアプリ完成時に `develop` からマージする予定のため、それまでは `main` への直接のコミット・push・マージは行わない。
 - デプロイ: Render。`develop` へのマージで自動デプロイされる（つまり develop へのマージ＝本番反映）。
+- 動作確認: 開発者は Render にデプロイされたサイト（HTTPS）を開いて動作を確かめる。`localhost` での確認を前提にしない。確認方法を案内するときは次の点に従う。
+  - 変更は `develop` へのマージ後、Render の自動デプロイが終わってから確認できる。未確認の変更がそのまま本番に出ることになるため、確認用のログ（`console.info` など）は残す期間を決め、確認が終わったら消すよう案内する。
+  - PC で確認するときは、Render の URL をブラウザで開き、F12 の開発者ツール（コンソール）を見る。
+  - スマホで確認するときは、端末単体ではコンソールを見られない。Android は PC の Chrome の `chrome://inspect`（USB でつないでリモートデバッグ）、iPhone は Mac の Safari の「開発」メニューを使って、Render の URL を開いたスマホのコンソールを見る。
 - メール送信: Brevo を使用（Supabase Auth の SMTP 経由。テンプレートは `src/supabase/templates/`）。
 - アプリの挙動（画面の表示・文言・操作の流れなど、利用者から見て変わること）を修正・追加したときは、ルートの `利用者目線のアプリ挙動一覧.md` の該当箇所も同じ作業の中で更新し、ソースコードと食い違わないようにする。変更したファイルの一覧にも含めること。
 - `docs/` の資料は卒論の参考資料であり、実装の根拠には使わない。仕様・挙動はソースコードとマイグレーションを正とする（`docs/` 内の README は古い記述を含む）。
@@ -29,7 +33,7 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - `npm run dev`: `node --watch server.js`（変更時に自動再起動）
 - `npm start`: 本番用の起動
 - アプリ: http://localhost:3000 ／ ヘルスチェック: `GET /api/health`
-- テストランナー・リンター・ビルド工程はない。フロントは素のファイルをそのまま配信している。動作確認はサーバーを起動してブラウザで行う。`POST /api/push/test` を使うと、cron を待たずにログイン中の本人の端末へテスト通知を送れる。
+- テストランナー・リンター・ビルド工程はない。フロントは素のファイルをそのまま配信している。動作確認は Render にデプロイしたサイトをブラウザで開いて行う（「運用ルール」の「動作確認」を参照）。`POST /api/push/test` を使うと、cron を待たずにログイン中の本人の端末へテスト通知を送れる。
 - VAPID 鍵の生成: `npx web-push generate-vapid-keys`
 - 初期設定: `.env.example` を `.env` にコピーする。`DEBUG_AUTH=true` にすると、本番以外で認証の詳細ログが出る。
 - カメラ・プッシュ通知・Service Worker は HTTPS か `localhost` でのみ動く。
