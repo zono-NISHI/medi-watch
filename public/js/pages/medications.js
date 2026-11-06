@@ -294,7 +294,8 @@ function decodeQrText(code) {
 
 function startQrScanning() {
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  // 毎フレーム getImageData で画素を読み出すため、読み出し向けの設定にする（ブラウザの警告と処理の重さを防ぐ）
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
   function tick() {
     if (qrVideo.readyState === qrVideo.HAVE_ENOUGH_DATA && window.jsQR) {
@@ -305,8 +306,6 @@ function startQrScanning() {
       const code = window.jsQR(imageData.data, imageData.width, imageData.height);
       const text = code ? decodeQrText(code) : '';
       if (text) {
-        // 動作確認用: 読み取った内容を開発者ツールで確認できるようにする（パーサー調整後に削除予定）
-        console.info('[QR] 読み取った内容:', text);
         stopQrScanning();
         qrModal.close();
         handleQrData(text);
@@ -370,6 +369,10 @@ function showQrPreview(medications) {
             <input type="text" class="unit-other" placeholder="単位を入力" aria-label="単位（その他）" hidden />
           </div>
         </div>
+        <div class="field">
+          <label>メモ（飲み方など）</label>
+          <textarea class="qr-edit-notes" data-index="${i}">${escapeHtml(m.notes || '')}</textarea>
+        </div>
       </div>`
     )
     .join('');
@@ -385,6 +388,7 @@ document.getElementById('qr-confirm-btn').addEventListener('click', async () => 
     name: row.querySelector('.qr-edit-name').value.trim(),
     dosage: row.querySelector('.qr-edit-dosage').value.trim(),
     unit: getUnitValue(row.querySelector('.unit-picker')),
+    notes: row.querySelector('.qr-edit-notes').value.trim(),
   }));
 
   try {

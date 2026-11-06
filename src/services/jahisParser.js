@@ -2,21 +2,32 @@
 //  JAHIS 電子版お薬手帳データフォーマット 簡易パーサー
 //
 //  参考: JAHIS「電子版お薬手帳データフォーマット仕様書」
-//  実際の仕様はバージョンレコード／医療機関等レコード／医薬品レコード等、
-//  レコード種別ごとにカンマ区切り（CSV準拠）の固定項目で構成される。
-//  本パーサーは卒業研究のプロトタイプとして、薬局QRコードに含まれる
-//  医薬品レコード（レコード種別 "21"：院外処方 医薬品情報 を想定）から
-//  薬品名・用量・用法に相当する項目を抽出する簡易実装である。
-//  実運用では薬局システムが出力する実データに合わせてレコード種別・
-//  カラム位置の調整が必要となる。
+//  データは "JAHISTCxx" のバージョン行から始まり、各レコードは改行区切り、
+//  各項目はカンマ区切り。先頭の項目がレコード番号（レコードの種類）を表す。
+//
+//  本パーサーは薬局・医院の明細書に印刷された「電子お薬手帳 QRデータ」の実データ
+//  （JAHISTC06）で確認した次の3種類のレコードから、薬の情報を取り出す。
+//    201 薬品レコード    : 201, RP番号, 薬品名称, 用量, 単位名, 薬品コード種別, 薬品コード, 作成者
+//    301 用法レコード    : 301, RP番号, 用法名称, 調剤数量, 調剤単位, 剤形コード, 用法コード種別, 用法コード, 作成者
+//    311 用法補足レコード: 311, RP番号, 用法補足情報, 作成者
+//  RP番号は「同じ飲み方をする薬のまとまり」の番号。1つの RP に薬が複数あることがあるため、
+//  用法・補足は RP番号ごとに集めてから、同じ RP の薬それぞれに付ける。
+//  患者・医療機関・医師などのレコード（1, 5, 11, 15, 51, 55 など）は個人情報のため読まない。
 // ============================================================
 
-// JAHISデータは "JAHISTCxx" のバージョン識別子から始まり、
-// 各レコードは改行(CRLF)区切り、各項目はカンマ区切りというのが基本構造。
-// レコード種別コードは仕様書の「３.２.６ 情報グループとレコード情報」を参照。
-// 本実装では医薬品情報レコード種別を "21"（院外処方）または "31"（OTC等）と仮定し、
-// [レコード種別, 薬品コード種別, 薬品コード, 薬品名称, 用法, 用量, 単位, 日数] の並びを想定する。
-const MEDICATION_RECORD_TYPES = ['21', '31'];
+const RECORD_DRUG = '201';
+const RECORD_USAGE = '301';
+const RECORD_USAGE_NOTE = '311';
+
+// 調剤数量を「◯日分」「◯回分」のように表示する単位。
+// 塗り薬などの「1調剤」は利用者にとって意味が分かりにくいので、メモには入れない。
+const DAYS_UNITS = ['日分', '回分'];
+
+// 全角の英数字・記号を半角にそろえる（例:「１０ｍｇ」→「10mg」、単位「ｇ」→「g」）。
+// 単位のプルダウン（g・mL など）と一致させるためと、文字を読みやすくするため。
+function normalize(text) {
+  return (text || '').normalize('NFKC').trim();
+}
 
 function parseJahisQr(rawData) {
   if (typeof rawData !== 'string' || rawData.trim().length === 0) {
@@ -33,48 +44,52 @@ function parseJahisQr(rawData) {
       return { success: false, message: 'QRコードの内容を読み取れませんでした。' };
     }
 
-    const versionLine = lines[0];
-    const isJahisFormat = /^JAHISTC\d{2}/.test(versionLine);
+    const isJahisFormat = /^JAHISTC\d{2}/.test(lines[0]);
+    if (!isJahisFormat) {
+      return {
+        success: false,
+        message: 'お薬手帳用のQRコードとして認識できませんでした。手動で入力してください。',
+      };
+    }
 
-    const medications = [];
+    const drugs = []; // { rp, name, dosage, unit }
+    const usageByRp = new Map(); // RP番号 → ['分1(朝食後服用)', '24日分', ...]
+
+    const addUsage = (rp, text) => {
+      if (!text) return;
+      if (!usageByRp.has(rp)) usageByRp.set(rp, []);
+      usageByRp.get(rp).push(text);
+    };
 
     for (const line of lines) {
-      const cols = line.split(',').map((c) => c.trim());
-      const recordType = cols[0];
+      const cols = line.split(',').map((c) => normalize(c));
+      const [recordType, rp] = cols;
 
-      if (MEDICATION_RECORD_TYPES.includes(recordType)) {
-        // 想定カラム: [種別, 薬品コード種別, 薬品コード, 薬品名称, 用法, 用量, 単位, 日数]
-        const name = cols[3];
-        const usage = cols[4];
-        const dosage = cols[5];
-        const unit = cols[6];
-        const days = cols[7];
-
-        if (name) {
-          medications.push({
-            name,
-            dosage: dosage || null,
-            unit: unit || null,
-            notes: [usage, days ? `${days}日分` : null].filter(Boolean).join(' / ') || null,
-          });
-        }
+      if (recordType === RECORD_DRUG) {
+        const [, , name, dosage, unit] = cols;
+        if (name) drugs.push({ rp, name, dosage: dosage || null, unit: unit || null });
+      } else if (recordType === RECORD_USAGE) {
+        const [, , usage, quantity, quantityUnit] = cols;
+        addUsage(rp, usage);
+        if (quantity && DAYS_UNITS.includes(quantityUnit)) addUsage(rp, `${quantity}${quantityUnit}`);
+      } else if (recordType === RECORD_USAGE_NOTE) {
+        addUsage(rp, cols[2]);
       }
     }
 
-    if (medications.length === 0) {
-      // JAHIS形式と判定できない、または医薬品レコードが見つからない場合は
-      // 簡易フォールバックとしてカンマ区切りの先頭値を薬品名とみなす
-      if (!isJahisFormat) {
-        return {
-          success: false,
-          message: 'JAHISフォーマットのQRコードとして認識できませんでした。手動で入力してください。',
-        };
-      }
+    if (drugs.length === 0) {
       return {
         success: false,
         message: 'QRコードに医薬品情報が含まれていませんでした。手動で入力してください。',
       };
     }
+
+    const medications = drugs.map((d) => ({
+      name: d.name,
+      dosage: d.dosage,
+      unit: d.unit,
+      notes: (usageByRp.get(d.rp) || []).join(' / ') || null,
+    }));
 
     return { success: true, medications };
   } catch (err) {
