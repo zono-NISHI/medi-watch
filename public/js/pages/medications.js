@@ -302,33 +302,24 @@ function startQrScanning() {
   const canvas = document.createElement('canvas');
   // 毎フレーム getImageData で画素を読み出すため、読み出し向けの設定にする（ブラウザの警告と処理の重さを防ぐ）
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  // 動作確認用（QRが読み取れない原因の確認が終わったら削除する）。読み取った内容（個人情報）は出さない。
-  let loggedSize = false;
-  let loggedEmpty = false;
-  if (!window.jsQR) console.warn('[QR] 読み取り用のライブラリ（jsQR）が読み込まれていません。');
 
-  // しばらく読み取れないときは、映し方のコツを表示する
+  // しばらく読み取れないときは、映し方のコツを表示する。
+  // ノートPCの内蔵カメラはピントが固定（顔の距離向け）のものが多く、近づけるとぼやけ、
+  // 離すと小さすぎて、細かいお薬手帳のQRコードは読めないことがある（スマホなら読める）。
   qrHintTimer = setTimeout(() => {
     qrStatus.textContent =
-      '読み取れないときは、QRコードを明るい場所で、画面いっぱいに大きく、まっすぐ映してください。';
+      '読み取れないときは、QRコードを明るい場所で、画面いっぱいに大きく、まっすぐ映してください。' +
+      'パソコンのカメラでは読み取れないことがあります。そのときはスマートフォンでお試しください。';
   }, 10000);
 
   function tick() {
     if (qrVideo.readyState === qrVideo.HAVE_ENOUGH_DATA && window.jsQR) {
       canvas.width = qrVideo.videoWidth;
       canvas.height = qrVideo.videoHeight;
-      if (!loggedSize) {
-        console.info(`[QR] カメラ映像の大きさ: ${canvas.width}×${canvas.height}`);
-        loggedSize = true;
-      }
       ctx.drawImage(qrVideo, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = window.jsQR(imageData.data, imageData.width, imageData.height);
       const text = code ? decodeQrText(code) : '';
-      if (code && !text && !loggedEmpty) {
-        console.warn(`[QR] QRコードは見つかったが、文字に戻せませんでした（${code.binaryData ? code.binaryData.length : 0}バイト）`);
-        loggedEmpty = true;
-      }
       if (text) {
         stopQrScanning();
         qrModal.close();
