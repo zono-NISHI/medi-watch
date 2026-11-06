@@ -29,6 +29,22 @@ function normalize(text) {
   return (text || '').normalize('NFKC').trim();
 }
 
+// 用法名称を、薬の専門用語を知らない人にも分かる書き方にそろえる。
+//  - 「分1」「分3」などの薬局の略語（1日の量を何回に分けて飲むか）→「1日1回」「1日3回」
+//      例:「分1(朝食後服用)」→「1日1回(朝食後服用)」
+//  - 回数の幅は「少ない〜多い」の順にそろえる（処方では「2回〜1回」と書かれることがある）
+//      例:「1日2回~1回」→「1日1〜2回」
+//  - 波線は、全角→半角の変換で「~」になったものを読みやすい「〜」に戻す
+function humanizeUsage(usage) {
+  return usage
+    .replace(/(^|[\s(])分(\d+)/g, '$11日$2回')
+    .replace(/(\d+)回\s*[~〜]\s*(\d+)回/g, (_, a, b) => {
+      const [min, max] = [Number(a), Number(b)].sort((x, y) => x - y);
+      return `${min}〜${max}回`;
+    })
+    .replace(/~/g, '〜');
+}
+
 function parseJahisQr(rawData) {
   if (typeof rawData !== 'string' || rawData.trim().length === 0) {
     return { success: false, message: 'QRコードのデータが空です。' };
@@ -70,7 +86,7 @@ function parseJahisQr(rawData) {
         if (name) drugs.push({ rp, name, dosage: dosage || null, unit: unit || null });
       } else if (recordType === RECORD_USAGE) {
         const [, , usage, quantity, quantityUnit] = cols;
-        addUsage(rp, usage);
+        if (usage) addUsage(rp, humanizeUsage(usage));
         if (quantity && DAYS_UNITS.includes(quantityUnit)) addUsage(rp, `${quantity}${quantityUnit}`);
       } else if (recordType === RECORD_USAGE_NOTE) {
         addUsage(rp, cols[2]);
