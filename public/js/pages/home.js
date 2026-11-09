@@ -58,6 +58,14 @@ async function runPoll() {
   scheduleNextPoll();
 }
 
+// ブラウザの「戻る」で、前に開いていたホーム画面がそのまま復元されたとき（bfcache）も、
+// 記録タブで変えた内容を反映するため、最新の予定と記録を読み直す
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted) return;
+  pollFailures = 0;
+  runPoll();
+});
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     clearTimeout(pollTimer);

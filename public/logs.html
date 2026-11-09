@@ -22,6 +22,9 @@
 
     <section id="role-banner" aria-live="polite"></section>
 
+    <!-- 付け忘れた服薬をあとから登録する（自分の記録を表示しているときだけ出す） -->
+    <button class="btn btn-accent" id="add-log-btn" style="margin-bottom: var(--space-3);" hidden>＋ 服薬の記録を追加する</button>
+
     <div class="row" style="margin-bottom: var(--space-3);">
       <input type="date" id="date-filter" />
       <select id="status-filter">
@@ -36,6 +39,43 @@
       <p class="text-muted">読み込み中…</p>
     </section>
   </main>
+
+  <!-- 記録の状態を変える画面 -->
+  <dialog id="status-modal" class="take-modal">
+    <div class="take-modal-inner">
+      <button class="modal-close" data-close aria-label="閉じる">×</button>
+      <h2 id="status-modal-title">記録を変更する</h2>
+      <p class="text-muted" id="status-modal-sub"></p>
+      <div class="stack stack--tight">
+        <button class="btn btn-success" data-status="taken">服薬済みにする</button>
+        <button class="btn btn-outline" data-status="skipped">スキップにする</button>
+        <button class="btn btn-ghost" data-status="pending" id="status-pending-btn">記録を取り消す</button>
+      </div>
+      <p class="text-sm text-muted" id="status-modal-note"></p>
+    </div>
+  </dialog>
+
+  <!-- 服薬の記録を追加する画面 -->
+  <dialog id="add-modal" class="take-modal">
+    <form class="take-modal-inner stack" id="add-form" novalidate>
+      <button type="button" class="modal-close" data-close aria-label="閉じる">×</button>
+      <h2>服薬の記録を追加する</h2>
+      <p class="text-muted">「飲んだ」を押し忘れたときなどに、あとから記録できます。</p>
+      <div class="field">
+        <label for="add-date">日付</label>
+        <input type="date" id="add-date" required />
+      </div>
+      <div class="field">
+        <label for="add-schedule">お薬と時刻</label>
+        <select id="add-schedule" required></select>
+      </div>
+      <p class="text-sm text-muted" id="add-schedule-note" hidden></p>
+      <div class="stack stack--tight">
+        <button type="button" class="btn btn-success" data-status="taken">服薬済みとして記録する</button>
+        <button type="button" class="btn btn-outline" data-status="skipped">スキップとして記録する</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="js/config.js"></script>
   <script src="js/api.js"></script>

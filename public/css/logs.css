@@ -54,6 +54,17 @@
   color: var(--color-ink-soft);
 }
 
+/* カード右側のボタン（映像を見る／変更）。縦に並べて押しやすくする */
+.log-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.log-actions .btn { width: auto; }
+
+#add-log-btn { width: 100%; }
+
 .log-main { flex: 1; min-width: 0; }
 .log-main h3 { margin-bottom: 0.2rem; font-size: var(--fs-base); }
 .log-main .row { flex-wrap: wrap; }

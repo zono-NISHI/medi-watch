@@ -62,6 +62,10 @@ router.post(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ error: '日付の形式が正しくありません。' });
     }
+    // 記録タブから過去の分を登録できるようにしたため、まだ来ていない日の記録は作らせない
+    if (date > jstToday().dateStr) {
+      return res.status(400).json({ code: 'FUTURE_DATE', error: '明日以降の記録はまだ登録できません。' });
+    }
 
     const { data: schedule, error: scheduleErr } = await req.supabase
       .from('medication_schedules')
@@ -162,6 +166,64 @@ router.patch(
       logId: log.id,
       type: 'medication_missed',
     }).catch((e) => console.error('[notify] 飲み忘れ通知の送信に失敗:', e));
+
+    res.json({ log });
+  })
+);
+
+// ----------------------------------------------------------
+// PATCH /api/logs/:id/status
+// 記録タブからの状態の変更（付け忘れ・押し間違いの訂正）。本人だけが行える。
+// body: { status: 'taken' | 'skipped' | 'pending' }
+//  - 'pending' は記録の取り消し。服薬時刻を過ぎていれば画面では「飲み忘れ」と表示される
+//    （「飲み忘れ」は状態として保存せず、pending と予定時刻から画面側で判断している）。
+//  - 映像は消さずに残す。押し間違いで「服薬済み」以外にしても、戻せばまた見られるようにするため。
+//  - 家族への通知は、今日の予定を変えたときだけ、ホームで記録したときと同じものを送る。
+//    過去の日の訂正で「服薬完了」などが届くと、いま飲んだと誤解されるため。
+// ----------------------------------------------------------
+const EDITABLE_STATUSES = ['taken', 'skipped', 'pending'];
+
+router.patch(
+  '/:id/status',
+  asyncHandler(async (req, res) => {
+    const { status } = req.body;
+    if (!EDITABLE_STATUSES.includes(status)) {
+      return res.status(400).json({ code: 'INVALID_STATUS', error: '変更後の状態が正しくありません。' });
+    }
+
+    // 家族は記録を参照できるが、変更は本人の記録だけに限る
+    const { data: current, error: currentErr } = await req.supabase
+      .from('medication_logs')
+      .select('id, status, scheduled_at')
+      .eq('id', req.params.id)
+      .eq('patient_id', req.user.id)
+      .maybeSingle();
+
+    if (currentErr) return sendSupabaseError(res, currentErr, '服薬記録の取得に失敗しました。');
+    if (!current) {
+      return res.status(404).json({ code: 'NOT_FOUND', error: '変更できる服薬記録が見つかりません。' });
+    }
+
+    const { data: log, error } = await req.supabase
+      .from('medication_logs')
+      .update({
+        status,
+        // taken_at は「記録した時刻」。取り消したときは記録していない状態に戻す
+        taken_at: status === 'pending' ? null : new Date().toISOString(),
+      })
+      .eq('id', current.id)
+      .select()
+      .single();
+
+    if (error) return sendSupabaseError(res, error, '服薬記録の更新に失敗しました。');
+
+    const isToday = jstToday(new Date(current.scheduled_at)).dateStr === jstToday().dateStr;
+    const notifyType =
+      status === 'taken' ? 'medication_taken' : status === 'skipped' ? 'medication_missed' : null;
+    if (isToday && notifyType && current.status !== status) {
+      notifyCareGroup({ patientId: req.user.id, logId: log.id, type: notifyType })
+        .catch((e) => console.error('[notify] 記録の変更の通知に失敗:', e));
+    }
 
     res.json({ log });
   })

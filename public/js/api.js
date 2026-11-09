@@ -280,6 +280,8 @@ const Api = {
   createLog: (payload) => apiRequest('/logs', { method: 'POST', body: payload }),
   takeLog: (id, payload) => apiRequest(`/logs/${id}/take`, { method: 'PATCH', body: payload }),
   skipLog: (id, payload) => apiRequest(`/logs/${id}/skip`, { method: 'PATCH', body: payload }),
+  // 記録タブからの状態の変更（status: 'taken' | 'skipped' | 'pending'）
+  updateLogStatus: (id, status) => apiRequest(`/logs/${id}/status`, { method: 'PATCH', body: { status } }),
   getVideoUploadUrl: (id) => apiRequest(`/logs/${id}/video-upload-url`, { method: 'POST' }),
   getVideoUrl: (id) => apiRequest(`/logs/${id}/video-url`),
 
