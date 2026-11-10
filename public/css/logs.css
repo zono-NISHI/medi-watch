@@ -15,23 +15,30 @@
   gap: var(--space-3);
 }
 
-/* 1日分のまとまり（紙色の枠で囲み、日付の見出しを付ける） */
+/* 1日分のまとまり。ページの背景（紙色）と見分けやすいよう、
+   藍色の太い枠で囲み、日付の見出しは藍色の帯に白い文字で表示する。
+   家族を表示しているとき（body.is-watching）はテラコッタ色にする */
 #log-list { gap: var(--space-4); }
 
 .log-day {
+  --day-color: var(--color-indigo);
   background: var(--color-paper-warm);
-  border: 1px solid var(--color-line);
+  border: 3px solid var(--day-color);
   border-radius: var(--radius-lg);
-  padding: var(--space-3);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
 }
+body.is-watching .log-day { --day-color: var(--color-terracotta-deep); }
 
 .log-day-title {
   font-size: var(--fs-md);
-  color: var(--color-indigo-deep);
-  border-bottom: 2px solid var(--color-line);
-  padding-bottom: var(--space-1);
-  margin-bottom: var(--space-2);
+  color: var(--color-white);
+  background: var(--day-color);
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
 }
+
+.log-day > .stack { padding: var(--space-3); }
 
 /* カード左側の時刻（記録した時刻／予定時刻）と、その種類の小さなラベル */
 .log-time {
