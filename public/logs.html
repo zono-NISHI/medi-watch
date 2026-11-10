@@ -44,7 +44,7 @@
   <dialog id="status-modal" class="take-modal">
     <div class="take-modal-inner">
       <button class="modal-close" data-close aria-label="閉じる">×</button>
-      <h2 id="status-modal-title">記録を変更する</h2>
+      <h2 id="status-modal-title">記録を編集する</h2>
       <p class="text-muted" id="status-modal-sub"></p>
       <div class="stack stack--tight">
         <button class="btn btn-success" data-status="taken">服薬済みにする</button>
@@ -63,7 +63,7 @@
       <p class="text-muted">「飲んだ」を押し忘れたときなどに、あとから記録できます。</p>
       <div class="field">
         <label for="add-date">日付</label>
-        <input type="date" id="add-date" required />
+        <select id="add-date" required></select>
       </div>
       <div class="field">
         <label for="add-schedule">お薬と時刻</label>
