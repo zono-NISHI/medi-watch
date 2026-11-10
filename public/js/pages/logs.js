@@ -76,13 +76,15 @@ function renderLogs(logs) {
     return;
   }
 
-  // 新しい順（降順）に並べる。記録済みは記録した時刻、未記録（pending）は予定時刻を基準にする
-  const sorted = [...logs].sort((a, b) => new Date(sortKey(b)) - new Date(sortKey(a)));
+  // 予定時刻の新しい順（降順）に並べる。
+  // 記録した時刻を基準にすると、昨日の分をあとから直したときに「今日」のまとまりへ移ってしまうため、
+  // 状態を変えても位置が変わらないよう、常に予定時刻を基準にする
+  const sorted = [...logs].sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
 
-  // 並べ替えの基準時刻の日付（日本時間）ごとにまとめる。降順に並べ済みなので、日付が変わったら次のまとまりにする
+  // 予定の日付（日本時間）ごとにまとめる。降順に並べ済みなので、日付が変わったら次のまとまりにする
   const days = [];
   for (const log of sorted) {
-    const key = jstDateKey(sortKey(log));
+    const key = jstDateKey(log.scheduled_at);
     if (days.length === 0 || days[days.length - 1].key !== key) {
       days.push({ key, logs: [] });
     }
@@ -115,7 +117,7 @@ function renderLogs(logs) {
   );
 }
 
-// 1件分のカード。大きく表示する時刻は並べ替えの基準と同じ（記録済みは記録した時刻、未記録は予定時刻）
+// 1件分のカード。大きく表示する時刻は並べ替えの基準と同じ予定時刻
 function renderLogCard(log, now) {
   const recorded = recordedAt(log);
   const med = log.medication_schedules?.medications;
@@ -129,12 +131,12 @@ function renderLogCard(log, now) {
       ? '<span class="badge badge-missed">飲み忘れ</span>'
       : '<span class="badge badge-pending">未記録</span>';
 
-  // 記録済みは予定時刻を小さく添える。記録した日と予定の日が違うときは日付も付ける
-  let scheduleNote = '';
+  // 記録済みは記録した時刻を小さく添える。あとから記録して、予定の日と記録した日が違うときは日付も付ける
+  let recordNote = '';
   if (recorded) {
     const sameDay = jstDateKey(recorded) === jstDateKey(log.scheduled_at);
-    const when = sameDay ? jstTime(log.scheduled_at) : `${jstMonthDay(log.scheduled_at)} ${jstTime(log.scheduled_at)}`;
-    scheduleNote = `<span class="text-sm text-muted">予定：${when}</span>`;
+    const when = sameDay ? jstTime(recorded) : `${jstMonthDay(recorded)} ${jstTime(recorded)}`;
+    recordNote = `<span class="text-sm text-muted">記録：${when}</span>`;
   }
 
   const videoBtn =
@@ -142,19 +144,19 @@ function renderLogCard(log, now) {
       ? `<button class="btn btn-outline btn--sm" data-log-id="${log.id}" data-action="video">映像を見る</button>`
       : '';
   const editBtn = isSelfView()
-    ? `<button class="btn btn-outline btn--sm" data-log-id="${log.id}" data-action="edit">変更</button>`
+    ? `<button class="btn btn-outline btn--sm" data-log-id="${log.id}" data-action="edit">編集</button>`
     : '';
   const actions = videoBtn || editBtn ? `<div class="log-actions">${videoBtn}${editBtn}</div>` : '';
 
   return `
     <div class="log-card">
       <div class="log-time">
-        <span class="log-time-value">${jstTime(sortKey(log))}</span>
-        <span class="log-time-label">${recorded ? '記録' : '予定'}</span>
+        <span class="log-time-value">${jstTime(log.scheduled_at)}</span>
+        <span class="log-time-label">予定</span>
       </div>
       <div class="log-main">
         <h3>${escapeHtml(med?.name || '（薬名不明）')}</h3>
-        <div class="row">${statusBadge} ${scheduleNote}</div>
+        <div class="row">${statusBadge} ${recordNote}</div>
       </div>
       ${actions}
     </div>`;
@@ -192,7 +194,7 @@ function openStatusModal(log) {
   if (!log || !isSelfView()) return;
   editingLog = log;
   const med = log.medication_schedules?.medications;
-  document.getElementById('status-modal-title').textContent = `「${med?.name || 'お薬'}」の記録を変更する`;
+  document.getElementById('status-modal-title').textContent = `「${med?.name || 'お薬'}」の記録を編集する`;
   document.getElementById('status-modal-sub').textContent =
     `${jstMonthDay(log.scheduled_at)} ${jstTime(log.scheduled_at)} の予定です。いまは「${statusLabel(log)}」になっています。`;
 
@@ -237,12 +239,24 @@ const addDate = document.getElementById('add-date');
 const addSchedule = document.getElementById('add-schedule');
 const addScheduleNote = document.getElementById('add-schedule-note');
 let mySchedules = []; // 自分の服薬スケジュール（追加画面を開くたびに読み込む）
+const ADD_DAYS_BACK = 30; // あとから記録できるのは、今日から30日前まで
+
+// 日付の選択肢（今日から過去へ）。カレンダー（input type="date"）では明日以降の日付を
+// 画面から消せない（iPhone の Safari は選べないようにする指定 max にも従わない）ため、選択肢から選ぶ形にしている
+function renderDateOptions() {
+  const today = jstDateKey(new Date());
+  const keys = [];
+  for (let i = 0; i <= ADD_DAYS_BACK; i += 1) {
+    keys.push(jstDateKey(new Date(`${today}T12:00:00+09:00`).getTime() - i * 24 * 60 * 60 * 1000));
+  }
+  addDate.innerHTML = keys.map((key) => `<option value="${key}">${dayLabel(key)}</option>`).join('');
+  // 日付で絞り込んでいて、その日が選択肢にあれば、その日を初めから選んでおく
+  addDate.value = keys.includes(dateFilter.value) ? dateFilter.value : today;
+}
 
 addLogBtn.addEventListener('click', async () => {
   if (!isSelfView()) return;
-  const today = jstDateKey(new Date());
-  addDate.max = today; // 明日以降の記録はまだ付けられない
-  addDate.value = dateFilter.value && dateFilter.value <= today ? dateFilter.value : today;
+  renderDateOptions();
   addLogBtn.disabled = true;
   try {
     const { schedules } = await Api.listSchedules();
@@ -332,11 +346,6 @@ function afterRecordChanged() {
 function recordedAt(log) {
   if (log.status === 'pending') return null;
   return log.taken_at || (log.status === 'skipped' ? log.updated_at : null);
-}
-
-// 並べ替えの基準となる時刻（記録した時刻。未記録なら予定時刻）
-function sortKey(log) {
-  return recordedAt(log) || log.scheduled_at;
 }
 
 // 薬の名前は家族の端末にも表示するため、HTML として解釈されないようにする
