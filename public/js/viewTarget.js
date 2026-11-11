@@ -47,6 +47,17 @@ const ViewTarget = (() => {
       targets.find((t) => t.id === roleDefault) ||
       self;
 
+    // URLで指定された人を見られない場合（見守りが終わったあとに古い通知をタップした等）は、
+    // 黙って自分の情報を出すと取り違えるおそれがあるため、そのことを知らせる。
+    // （前回選んだ人の保存値は、同じ端末で別の利用者がログインした場合にも残るため、知らせる対象にしない）
+    if (fromUrl && !targets.some((t) => t.id === fromUrl)) {
+      showToast(
+        'このご家族の見守りは終了しているため、お薬の様子を見ることはできません。あなたご自身の情報を表示しています。',
+        'error',
+        8000
+      );
+    }
+
     // URLの指定は1回限り（再読み込みで固定されないよう消しておく）
     if (fromUrl) {
       const params = new URLSearchParams(location.search);

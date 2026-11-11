@@ -270,7 +270,8 @@ function renderWatching(watching) {
             </div>
           </div>
           <div class="member-actions">
-            <a class="btn btn-accent btn--sm" href="home.html?view=${encodeURIComponent(w.patient_id)}">
+            <a class="btn btn-accent btn--sm" href="home.html?view=${encodeURIComponent(w.patient_id)}"
+               data-action="view" data-patient-id="${escapeHtml(w.patient_id)}" data-name="${escapeHtml(name)}">
               お薬の様子を見る
             </a>
             <button class="btn btn-danger-outline btn--sm" data-action="leave"
@@ -284,6 +285,33 @@ function renderWatching(watching) {
 }
 
 els.watchingList.addEventListener('click', async (e) => {
+  // 「お薬の様子を見る」：画面を開いたあとに相手が見守りを外していることがあるため、
+  // 移動する前に、いまも見守っているかを確かめる
+  const viewLink = e.target.closest('a[data-action="view"]');
+  if (viewLink) {
+    e.preventDefault();
+    const { patientId, name } = viewLink.dataset;
+    let watching;
+    try {
+      ({ watching } = await Api.listWatching());
+    } catch (err) {
+      // 確かめられないときはそのまま移動する（移動先でも見られるかを確かめている）
+      console.error(err);
+      location.href = viewLink.href;
+      return;
+    }
+    if ((watching || []).some((w) => w.patient_id === patientId)) {
+      location.href = viewLink.href;
+      return;
+    }
+    window.alert(
+      `${name}さんの見守りは終了しているため、お薬の様子を見ることはできません。\n` +
+        `もう一度見守るには、${name}さんから招待コードを教えてもらってください。`
+    );
+    await loadAll();
+    return;
+  }
+
   const btn = e.target.closest('button[data-action="leave"]');
   if (!btn) return;
 
