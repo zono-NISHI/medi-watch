@@ -36,6 +36,7 @@ const els = {
   codeBox: document.getElementById('invite-code-box'),
   createBtn: document.getElementById('create-group-btn'),
   copyBtn: document.getElementById('copy-code-btn'),
+  regenerateBtn: document.getElementById('regenerate-code-btn'),
 };
 
 if (!canWatch && !canBeWatched) {
@@ -134,6 +135,7 @@ function renderInviteCode(group) {
   if (!group) {
     els.codeBox.hidden = true;
     els.copyBtn.hidden = true;
+    els.regenerateBtn.hidden = true;
     els.createBtn.hidden = false;
     return;
   }
@@ -141,7 +143,28 @@ function renderInviteCode(group) {
   els.codeBox.hidden = false;
   els.codeBox.textContent = group.invite_code;
   els.copyBtn.hidden = !navigator.clipboard;
+  els.regenerateBtn.hidden = false;
 }
+
+// 招待コードを伝える相手を間違えたときなどに、古いコードを使えなくする
+els.regenerateBtn.addEventListener('click', async () => {
+  const ok = window.confirm(
+    '新しい招待コードにしますか？\n' +
+      'いまのコードは使えなくなります。まだ見守りを始めていないご家族には、新しいコードを伝え直してください。\n' +
+      'すでに見守っているご家族は、そのまま見守りを続けられます。'
+  );
+  if (!ok) return;
+  els.regenerateBtn.disabled = true;
+  try {
+    await Api.regenerateInviteCode();
+    showToast('新しい招待コードにしました。', 'success');
+    await loadAll();
+  } catch (err) {
+    handleApiError(err, '招待コードを作り直せませんでした。');
+  } finally {
+    els.regenerateBtn.disabled = false;
+  }
+});
 
 els.createBtn.addEventListener('click', async () => {
   els.createBtn.disabled = true;
@@ -227,13 +250,14 @@ els.watchersList.addEventListener('click', async (e) => {
 
   if (action === 'remove-watcher') {
     const ok = window.confirm(
-      `${btn.dataset.name}さんの見守りを外しますか？\n${btn.dataset.name}さんは、あなたのお薬の情報を見られなくなります。\n${btn.dataset.name}さんには、見守りが外れたことをお知らせします。`
+      `${btn.dataset.name}さんの見守りを外しますか？\n${btn.dataset.name}さんは、あなたのお薬の情報を見られなくなります。\n${btn.dataset.name}さんには、見守りが外れたことをお知らせします。\nあなたの招待コードは新しいものに変わります。`
     );
     if (!ok) return;
     btn.disabled = true;
     try {
       await Api.removeMember(memberId);
-      showToast('見守りを外しました。', 'success');
+      // 外した人が古いコードで見守りを再開できないよう、DB側で招待コードが作り直されている
+      showToast('見守りを外しました。招待コードも新しくなりました。', 'success');
       await loadAll();
     } catch (err) {
       handleApiError(err, '見守りを外せませんでした。');
