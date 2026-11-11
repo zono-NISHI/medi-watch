@@ -81,12 +81,9 @@ const ViewTarget = (() => {
   }
 
   // 切り替えボタン。onChange(target) は別の人を選んだときに呼ぶ
+  // 見守っている家族がいない（自分だけの）ときも「自分」のボタンは出す。
+  // 切り替える相手はいないが、いま自分のお薬の情報を見ていることが分かるようにするため。
   function renderSwitcher(nav, onChange) {
-    if (targets.length <= 1) {
-      nav.hidden = true;
-      nav.innerHTML = '';
-      return;
-    }
     nav.hidden = false;
     nav.innerHTML = targets
       .map(
