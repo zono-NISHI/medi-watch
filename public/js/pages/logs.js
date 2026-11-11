@@ -121,6 +121,8 @@ function renderLogs(logs) {
 function renderLogCard(log, now) {
   const recorded = recordedAt(log);
   const med = log.medication_schedules?.medications;
+  // お薬タブで登録した用量・単位（お薬タブ・ホームと同じく「用量 単位」の形）。どちらも未登録なら出さない
+  const amount = [med?.dosage, med?.unit].filter(Boolean).join(' ');
   const isMissed = isMissedLog(log, now);
   const statusBadge =
     log.status === 'taken'
@@ -156,6 +158,7 @@ function renderLogCard(log, now) {
       </div>
       <div class="log-main">
         <h3>${escapeHtml(med?.name || '（薬名不明）')}</h3>
+        ${amount ? `<p class="log-amount text-sm text-muted">${escapeHtml(amount)}</p>` : ''}
         <div class="row">${statusBadge} ${recordNote}</div>
       </div>
       ${actions}

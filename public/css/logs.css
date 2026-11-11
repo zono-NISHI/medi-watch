@@ -87,4 +87,5 @@ body.is-watching .log-day { --day-color: var(--color-terracotta-deep); }
 
 .log-main { flex: 1; min-width: 0; }
 .log-main h3 { margin-bottom: 0.2rem; font-size: var(--fs-base); }
+.log-main .log-amount { margin: 0 0 0.2rem; }
 .log-main .row { flex-wrap: wrap; }
