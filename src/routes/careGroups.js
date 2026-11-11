@@ -9,6 +9,7 @@
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
+const { notifyWatchRemoved } = require('../services/notificationService');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -216,13 +217,26 @@ router.delete(
       .from('care_group_members')
       .delete()
       .eq('id', memberId)
-      .select('id');
+      .select('id, user_id, group_id');
 
     if (error) return sendSupabaseError(res, error, '見守りの解除に失敗しました。');
     if (!data || data.length === 0) {
       return res.status(404).json({ error: '対象の見守りが見つからないか、解除する権限がありません。' });
     }
     res.json({ removed: memberId });
+
+    // 見守られている本人が外した場合だけ、外された人へ通知する。
+    // （見守っている本人が「見守りをやめる」を押した場合は通知しない）
+    // 解除は完了しているため、通知の失敗は応答に影響させない。
+    const removed = data[0];
+    if (removed.user_id !== req.user.id) {
+      const own = await findOwnGroup(req.supabase, req.user.id);
+      if (own.data && own.data.id === removed.group_id) {
+        notifyWatchRemoved({ removedUserId: removed.user_id, patientId: req.user.id }).catch((e) =>
+          console.error('[notify] 見守り解除の通知の送信に失敗:', e)
+        );
+      }
+    }
   })
 );
 

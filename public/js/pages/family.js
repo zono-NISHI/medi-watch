@@ -227,7 +227,7 @@ els.watchersList.addEventListener('click', async (e) => {
 
   if (action === 'remove-watcher') {
     const ok = window.confirm(
-      `${btn.dataset.name}さんの見守りを外しますか？\n${btn.dataset.name}さんは、あなたのお薬の情報を見られなくなります。`
+      `${btn.dataset.name}さんの見守りを外しますか？\n${btn.dataset.name}さんは、あなたのお薬の情報を見られなくなります。\n${btn.dataset.name}さんには、見守りが外れたことをお知らせします。`
     );
     if (!ok) return;
     btn.disabled = true;
