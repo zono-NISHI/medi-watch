@@ -22,14 +22,18 @@ self.addEventListener('push', (event) => {
   }
 
   const title = payload.title || 'お薬手帳からのお知らせ';
+  // 同じ予定の通知は1件にまとめる（予定に結び付かない通知はまとめない）
+  const tag = payload.logId ? `log-${payload.logId}` : undefined;
   const options = {
     body: payload.body || '',
     icon: 'assets/icon-192.png',
     badge: 'assets/icon-192.png',
     data: { logId: payload.logId, type: payload.type, patientId: payload.patientId, url: payload.url },
     vibrate: [300, 100, 300, 100, 300],
-    tag: payload.logId ? `log-${payload.logId}` : undefined, // 同じ予定の通知は1件にまとめる
-    renotify: true,
+    tag,
+    // renotify は tag があるときだけ指定する。tag が無いのに renotify: true にすると、
+    // ブラウザが TypeError を出して通知が表示されない（テスト通知・見守りの終了の通知が該当）
+    renotify: !!tag,
     requireInteraction: true, // 対応端末（PC 等）では、タップするまで通知を消さない
   };
 
