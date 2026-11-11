@@ -102,20 +102,12 @@ async function sendToUsers(userIds, payload) {
 async function notifyWatchRemoved({ removedUserId, patientId }) {
   const patientName = await getProfileName(patientId);
   const who = patientName ? `${patientName}さん` : '見守っていたご家族';
-  // 【確認用ログ・確認が終わったら削除する】登録端末の台数と、送れた台数
-  const { count } = await supabaseAdmin
-    .from('push_subscriptions')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', removedUserId);
-  console.info('[notify/watch_removed] 送信先の登録端末数:', count, 'VAPID設定:', vapidConfigured);
-  const sent = await sendToUsers([removedUserId], {
+  return sendToUsers([removedUserId], {
     title: `見守りが終了しました：${who}`,
     body: `${who}が、あなたによる見守りを外しました。今後は${who}のお薬の様子を見られません。`,
     type: 'watch_removed',
     url: 'family.html',
   });
-  console.info('[notify/watch_removed] 送信できた端末数:', sent);
-  return sent;
 }
 
 // 患者本人のケアグループに所属する家族・介護者へ通知を送信する
