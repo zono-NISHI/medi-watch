@@ -68,7 +68,20 @@ body.is-watching .log-day { --day-color: var(--color-terracotta-deep); }
   gap: var(--space-1);
   flex-shrink: 0;
 }
-.log-actions .btn { width: auto; }
+.log-actions .btn { width: auto; white-space: nowrap; }
+
+/* スマホなど幅の狭い画面では、ボタンを右側に置くと薬の名前の欄が細くなり、
+   名前が1〜2文字ずつ折り返して読みにくくなる。そこでボタンはカードの下の段に
+   横並びで置き、時刻と薬の名前には横幅いっぱいを使わせる */
+@media (max-width: 480px) {
+  .log-card { flex-wrap: wrap; }
+  .log-actions {
+    flex-direction: row;
+    flex-basis: 100%;
+    gap: var(--space-2);
+  }
+  .log-actions .btn { flex: 1; }
+}
 
 #add-log-btn { width: 100%; }
 
