@@ -55,6 +55,58 @@ async function getProfileName(userId) {
   return data?.name || null;
 }
 
+// 指定したユーザーの全端末へプッシュ通知を送り、送れた台数を返す
+async function sendToUsers(userIds, payload) {
+  if (!vapidConfigured || !userIds || userIds.length === 0) return 0;
+
+  const { data: subs, error: subErr } = await supabaseAdmin
+    .from('push_subscriptions')
+    .select('*')
+    .in('user_id', userIds);
+
+  if (subErr) throw subErr;
+  if (!subs || subs.length === 0) return 0;
+
+  let sentCount = 0;
+  await Promise.all(
+    subs.map(async (sub) => {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.p256dh, auth: sub.auth_key },
+          },
+          JSON.stringify(payload)
+        );
+        sentCount += 1;
+      } catch (err) {
+        // 410/404はサブスクリプション失効。DBから削除してクリーンアップ。
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
+        } else {
+          console.error('[notificationService] 送信失敗:', sub.id, err.message);
+        }
+      }
+    })
+  );
+  return sentCount;
+}
+
+// 見守られている本人が「見守りを外す」を押したとき、外された人（見守っていた人）へ知らせる。
+// 何も知らせないと、見守っていた人は急に相手の情報が見られなくなり、不具合や異変と誤解しやすい。
+// 外された人はもう相手の情報を見られないため、patientId は送らず、タップで見守り画面を開く。
+// notification_logs の type はCHECK制約で服薬関連に限られているため、ここでは記録しない。
+async function notifyWatchRemoved({ removedUserId, patientId }) {
+  const patientName = await getProfileName(patientId);
+  const who = patientName ? `${patientName}さん` : '見守っていたご家族';
+  return sendToUsers([removedUserId], {
+    title: `見守りが終了しました：${who}`,
+    body: `${who}が、あなたによる見守りを外しました。今後は${who}のお薬の様子を見られません。`,
+    type: 'watch_removed',
+    url: 'family.html',
+  });
+}
+
 // 患者本人のケアグループに所属する家族・介護者へ通知を送信する
 async function notifyCareGroup({ patientId, logId, type }) {
   // 患者のケアグループを取得
@@ -91,38 +143,13 @@ async function notifyCareGroup({ patientId, logId, type }) {
 
   const message = buildMessage(type, await getProfileName(patientId));
 
-  // 対象ユーザーのプッシュサブスクリプションを取得
-  const { data: subs, error: subErr } = await supabaseAdmin
-    .from('push_subscriptions')
-    .select('*')
-    .in('user_id', recipients);
-
-  if (subErr) throw subErr;
-
-  let sentCount = 0;
-  if (vapidConfigured && subs && subs.length > 0) {
-    await Promise.all(
-      subs.map(async (sub) => {
-        try {
-          await webpush.sendNotification(
-            {
-              endpoint: sub.endpoint,
-              keys: { p256dh: sub.p256dh, auth: sub.auth_key },
-            },
-            JSON.stringify({ title: message.title, body: message.body, logId, type, patientId })
-          );
-          sentCount += 1;
-        } catch (err) {
-          // 410/404はサブスクリプション失効。DBから削除してクリーンアップ。
-          if (err.statusCode === 410 || err.statusCode === 404) {
-            await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
-          } else {
-            console.error('[notificationService] 送信失敗:', sub.id, err.message);
-          }
-        }
-      })
-    );
-  }
+  const sentCount = await sendToUsers(recipients, {
+    title: message.title,
+    body: message.body,
+    logId,
+    type,
+    patientId,
+  });
 
   // 送信ログを記録（送信できたかどうかに関わらず、対象者リストとして記録する）
   await supabaseAdmin.from('notification_logs').insert({
@@ -135,4 +162,4 @@ async function notifyCareGroup({ patientId, logId, type }) {
   return { sent: sentCount, targeted: recipients.length };
 }
 
-module.exports = { notifyCareGroup, vapidConfigured, VAPID_PUBLIC_KEY };
+module.exports = { notifyCareGroup, notifyWatchRemoved, vapidConfigured, VAPID_PUBLIC_KEY };
