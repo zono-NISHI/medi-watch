@@ -229,8 +229,11 @@ router.delete(
     // （見守っている本人が「見守りをやめる」を押した場合は通知しない）
     // 解除は完了しているため、通知の失敗は応答に影響させない。
     const removed = data[0];
+    // 【確認用ログ・確認が終わったら削除する】外したのが見守られている本人かどうかの判定材料
+    console.info('[care-groups/remove] 外された人と操作した人が別人か:', removed.user_id !== req.user.id);
     if (removed.user_id !== req.user.id) {
       const own = await findOwnGroup(req.supabase, req.user.id);
+      console.info('[care-groups/remove] 自分のグループの見守りか:', !!own.data && own.data.id === removed.group_id, own.error?.message || '');
       if (own.data && own.data.id === removed.group_id) {
         notifyWatchRemoved({ removedUserId: removed.user_id, patientId: req.user.id }).catch((e) =>
           console.error('[notify] 見守り解除の通知の送信に失敗:', e)
