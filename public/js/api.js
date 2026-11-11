@@ -241,6 +241,7 @@ const Api = {
   // 見守られる側：自分の招待コード
   getMyCareGroup: () => apiRequest('/care-groups/mine'),
   createCareGroup: (payload = {}) => apiRequest('/care-groups', { method: 'POST', body: payload }),
+  regenerateInviteCode: () => apiRequest('/care-groups/mine/regenerate', { method: 'POST' }),
   // 見守られる側：自分を見守っている人
   listWatchers: () => apiRequest('/care-groups/watchers'),
   setMemberVideoPermission: (memberId, canViewVideo) =>

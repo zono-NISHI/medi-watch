@@ -72,6 +72,28 @@ router.post(
 );
 
 // ----------------------------------------------------------
+// POST /api/care-groups/mine/regenerate
+// 自分の招待コードを新しいランダムな値に作り直す（0006で定義したRPC）
+// すでに見守っている人の見守りは続く。古いコードでは新しく見守りを始められなくなる。
+// ----------------------------------------------------------
+router.post(
+  '/mine/regenerate',
+  asyncHandler(async (req, res) => {
+    const { data: code, error } = await req.supabase.rpc('regenerate_my_invite_code');
+    if (error) return sendSupabaseError(res, error, '招待コードを作り直せませんでした。');
+    if (!code) {
+      return res.status(404).json({
+        code: 'NO_INVITE_CODE',
+        error: 'まだ招待コードが発行されていません。',
+      });
+    }
+    const { data, error: findErr } = await findOwnGroup(req.supabase, req.user.id);
+    if (findErr) return sendSupabaseError(res, findErr);
+    res.json({ group: data });
+  })
+);
+
+// ----------------------------------------------------------
 // GET /api/care-groups
 // 互換用: 自分のグループと、参加しているグループ
 // ----------------------------------------------------------
@@ -131,7 +153,8 @@ router.get(
 router.post(
   '/join',
   asyncHandler(async (req, res) => {
-    const invite_code = String(req.body?.invite_code || '').trim();
+    // 書き写したときに入りやすい空白・ハイフンは取り除く（大文字・小文字はDB側で区別しない）
+    const invite_code = String(req.body?.invite_code || '').replace(/[\s\-ー－]/g, '');
     const relation = String(req.body?.relation || '').trim().slice(0, 20);
     if (!invite_code) return res.status(400).json({ error: '招待コードを入力してください。' });
 
@@ -223,6 +246,8 @@ router.delete(
     if (!data || data.length === 0) {
       return res.status(404).json({ error: '対象の見守りが見つからないか、解除する権限がありません。' });
     }
+    // 見守られている本人が外した場合は、DBのトリガー（0006）で招待コードも作り直される。
+    // 外された人が古いコードで見守りを再開できないようにするため。
     res.json({ removed: memberId });
 
     // 見守られている本人が外した場合だけ、外された人へ通知する。

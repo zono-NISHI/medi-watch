@@ -44,8 +44,8 @@
           <p class="text-sm text-muted">ご家族の「見守り」画面に表示されている招待コードを入力してください。</p>
           <form id="join-form" class="stack stack--tight">
             <label class="sr-only" for="invite-code-input">招待コード</label>
-            <input type="text" id="invite-code-input" placeholder="例：a1b2c3d4"
-                   inputmode="latin" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+            <input type="text" id="invite-code-input" placeholder="例：AB2CD3EF"
+                   inputmode="latin" autocomplete="off" autocapitalize="characters" spellcheck="false" required />
             <label class="text-sm" for="relation-input">あなたから見た続柄（任意）</label>
             <input type="text" id="relation-input" placeholder="例：母、父、祖母" maxlength="20" />
             <button type="submit" class="btn btn-accent">見守りを始める</button>
@@ -63,6 +63,7 @@
           <div class="invite-code-box" id="invite-code-box" hidden></div>
           <button class="btn btn-outline" id="create-group-btn" hidden>招待コードを発行する</button>
           <button class="btn btn-ghost btn--sm" id="copy-code-btn" hidden>コードをコピーする</button>
+          <button class="btn btn-ghost btn--sm" id="regenerate-code-btn" hidden>新しい招待コードにする</button>
         </details>
 
         <div id="watchers-list" class="stack stack--tight">

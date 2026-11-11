@@ -61,6 +61,7 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - RLS の権限判定は `SECURITY DEFINER` のヘルパー関数（`is_group_member`, `can_view_patient`, `can_view_patient_video` など。0003 で追加）にまとめている。ポリシー同士が互いのテーブルを参照して再帰する問題（42P17）を避けるため。新しいポリシーも同じ方式で追加し、互いのテーブルを参照するポリシーは書かない。
 - 0004（相互見守り）: 1つのアカウントが「見守る側」と「見守られる側」の両方になれる。`profiles.role` で表示する画面を分けることはもうしない。1人が持てる見守りグループ（招待コード）は1つまで。見守り相手の一覧は RPC の `list_my_watchers` / `list_my_watching` で取得する。
 - 0005（使う機能の選択）: `profiles.can_watch`（家族を見守る）／`can_be_watched`（家族に見守ってもらう）で使える機能を決める。登録画面の「使い方」（`watched` / `watcher` / `self`）で初期値が決まり、マイページで変更できる。OFF の人の見守り開始・招待コード発行や、相手がいるあいだの OFF はDBのトリガーが止め、`HINT` の識別子を `sendSupabaseError` が `code` に変換する。`profiles.role` は並び順・初期表示だけに使う。
+- 0006（招待コードの作り直し）: 招待コードは `generate_invite_code()` が作る英大文字・数字8文字のランダムな値（見間違えやすい文字は除く）。見守られる本人が見守りを外すとトリガーで自動的に作り直され、本人は RPC `regenerate_my_invite_code`（`POST /api/care-groups/mine/regenerate`）でも作り直せる。照合は大文字・小文字を区別しない。
 - `src/supabase/templates/*.html` は Supabase Auth のメールテンプレート（ダッシュボードで設定する）。
 
 ### フロントエンド（`public/`）
