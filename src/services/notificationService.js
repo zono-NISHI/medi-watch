@@ -76,7 +76,10 @@ async function sendToUsers(userIds, payload) {
             endpoint: sub.endpoint,
             keys: { p256dh: sub.p256dh, auth: sub.auth_key },
           },
-          JSON.stringify(payload)
+          JSON.stringify(payload),
+          // 省電力状態（Android の Doze など）でも後回しにされないよう、テスト通知と同じく high にする。
+          // TTL：端末がオフラインの間は1日だけ保持し、古くなったお知らせが何日も後に届かないようにする。
+          { TTL: 24 * 60 * 60, urgency: 'high' }
         );
         sentCount += 1;
       } catch (err) {
@@ -99,12 +102,20 @@ async function sendToUsers(userIds, payload) {
 async function notifyWatchRemoved({ removedUserId, patientId }) {
   const patientName = await getProfileName(patientId);
   const who = patientName ? `${patientName}さん` : '見守っていたご家族';
-  return sendToUsers([removedUserId], {
+  // 【確認用ログ・確認が終わったら削除する】登録端末の台数と、送れた台数
+  const { count } = await supabaseAdmin
+    .from('push_subscriptions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', removedUserId);
+  console.info('[notify/watch_removed] 送信先の登録端末数:', count, 'VAPID設定:', vapidConfigured);
+  const sent = await sendToUsers([removedUserId], {
     title: `見守りが終了しました：${who}`,
     body: `${who}が、あなたによる見守りを外しました。今後は${who}のお薬の様子を見られません。`,
     type: 'watch_removed',
     url: 'family.html',
   });
+  console.info('[notify/watch_removed] 送信できた端末数:', sent);
+  return sent;
 }
 
 // 患者本人のケアグループに所属する家族・介護者へ通知を送信する
