@@ -66,7 +66,6 @@
 }
 /* 選択肢の前の前置き（お薬の記録はどれを選んでも使えること） */
 .role-lead { margin: 0; }
-.role-note { margin: 0; }
 
 .role-option { position: relative; }
 .role-option input {
