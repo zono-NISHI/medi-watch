@@ -1,0 +1,8 @@
+{
+  "appId": "jp.mediwatch.app",
+  "appName": "お薬手帳",
+  "webDir": "../public",
+  "android": {
+    "allowMixedContent": false
+  }
+}

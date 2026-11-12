@@ -91,6 +91,23 @@ profileForm.addEventListener('submit', async (e) => {
   }
 });
 
+// ---- ネイティブ版（Android アプリ）：お薬の時間のアラームの設定 ----
+// アプリでは Web Push を使えないため、「通知設定」の代わりにアラームの設定を表示する
+if (NativeAlarm.available()) {
+  const nativeCard = document.getElementById('native-alarm-card');
+  const renderNativeChecks = () =>
+    NativeAlarm.renderChecks(document.getElementById('native-alarm-checks'), document.getElementById('native-alarm-next'));
+  nativeCard.hidden = false;
+  document.getElementById('web-push-card').hidden = true;
+  renderNativeChecks().then(() => {
+    if (location.hash === '#native-alarm-card') nativeCard.scrollIntoView({ block: 'start' });
+  });
+  // 設定の画面から戻ってきたら、状態を確認し直す
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) renderNativeChecks();
+  });
+}
+
 // ---- プッシュ通知（処理は js/push.js の PushSetup にまとめている） ----
 const notifBtn = document.getElementById('enable-notif-btn');
 
@@ -149,6 +166,7 @@ document.getElementById('status-notif-btn').addEventListener('click', async () =
 document.getElementById('logout-btn').addEventListener('click', async () => {
   if (!confirm('ログアウトしますか？')) return;
   await PushSetup.unlinkCurrentUser(); // ログアウト後にこの端末へ通知が届かないようにする
+  await NativeAlarm.clear(); // ネイティブ版：ログアウト後にこの端末でアラームが鳴らないようにする
   try { await Api.logout(); } catch {}
   Session.clear();
   location.href = 'login.html';

@@ -71,4 +71,13 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - `viewTarget.js`（`ViewTarget`）: 表示する人（自分／見守っている家族）の切り替え。選んだ人は localStorage に保存し、ホーム・お薬・記録のタブで共有する。家族の表示中は `body.is-watching` になり、配色が変わる。
 - `alarm.js`（`MedAlarm`）: アプリを画面に表示しているあいだの服薬アラーム。各ページで `MedAlarm.start()` を呼ぶ。服薬時刻から60分以内の未記録の予定について、全画面の表示と繰り返しの音を出す。ホーム以外で「カメラを起動する」を押すと `home.html?take=<スケジュールID>` へ移動する。
 - `sw.js` は `public/` の直下に置いたままにする。アプリ全体をスコープに含めるため。
+- `alarm.js` の `NativeAlarm` は、ネイティブ版のときだけ動く（Web 版では何もしない）。`MedAlarm` が予定を取得するたびに `NativeAlarm.sync()` で端末のアラームを予約し直す。ネイティブ版かどうかは `APP_CONFIG.IS_NATIVE_APP`（`config.js`）で判定する。
 - 高齢の利用者を想定しているので、平易で丁寧な日本語の文言と、大きく分かりやすい UI を優先する。
+
+### ネイティブ版（`mobile/`、Android のみ）
+- Capacitor 8 で `public/` をそのまま Android アプリに同梱し、服薬アラームだけを Java（`mobile/android/app/src/main/java/jp/mediwatch/app/alarm/`）で作っている。手順は `mobile/README.md`。
+- `mobile/` は独自の `package.json` を持つ。Capacitor などの依存はルートの `package.json` に入れない（Render のビルドに影響させないため）。
+- アプリの画面は `https://localhost` から開くため、API は `config.js` の `NATIVE_SERVER_ORIGIN`（Render の URL）へ送る。`server.js` は `/api` でこのオリジンだけを CORS で許可している。
+- `public/` を変えたら、`mobile/` で `npx cap sync android` を実行して取り込み、APK を作り直すまでアプリの画面には反映されない（API の変更はすぐ反映される）。
+- バンドラーを使わないので `@capacitor/core` は読み込まない。ネイティブのプラグインは `window.Capacitor.nativePromise('MediAlarm', メソッド名, 引数)` で呼ぶ。
+- WebView は Web Push に対応していないため、ネイティブ版では家族への通知（`push.js`）は使えない。

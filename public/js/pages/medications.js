@@ -158,6 +158,7 @@ async function deleteMedication(id) {
     await Api.deleteMedication(id);
     showToast('削除しました。', 'success');
     loadMedications();
+    MedAlarm.refresh(); // 変えた服薬時刻を、すぐアラームに反映する
   } catch (err) {
     handleApiError(err, '削除に失敗しました。');
   }
@@ -295,6 +296,7 @@ manualForm.addEventListener('submit', async (e) => {
     }
     manualModal.close();
     loadMedications();
+    MedAlarm.refresh(); // 変えた服薬時刻を、すぐアラームに反映する
   } catch (err) {
     handleApiError(err, '保存に失敗しました。');
   }
@@ -459,6 +461,7 @@ document.getElementById('qr-confirm-btn').addEventListener('click', async () => 
     showToast('お薬を登録しました。', 'success');
     qrPreviewModal.close();
     loadMedications();
+    MedAlarm.refresh(); // 変えた服薬時刻を、すぐアラームに反映する
   } catch (err) {
     handleApiError(err, '登録に失敗しました。');
   }

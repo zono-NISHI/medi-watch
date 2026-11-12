@@ -15,6 +15,10 @@ const PushSetup = (() => {
 
   // 通知を使えない理由を返す（使える場合は null）
   function unsupportedReason() {
+    // ネイティブ版（Android アプリ）の画面（WebView）は Web Push に対応していない
+    if (window.APP_CONFIG?.IS_NATIVE_APP) {
+      return 'アプリでは、お薬の時間をアプリのアラームでお知らせします。ご家族の飲み忘れのお知らせを受け取るときは、Chrome で medi-watch を開き、マイページの「プッシュ通知を有効にする」を押してください。';
+    }
     if (isInAppBrowser) {
       return 'アプリ内のブラウザでは通知を使えません。Chrome（iPhone は Safari）で開き直してください。';
     }

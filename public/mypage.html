@@ -51,7 +51,16 @@
       </form>
     </section>
 
-    <section class="card card--warm" style="margin-top: var(--space-3);">
+    <!-- ネイティブ版（Android アプリ）だけで表示する。Web 版では「通知設定」を表示する -->
+    <section class="card card--warm" id="native-alarm-card" style="margin-top: var(--space-3);" hidden>
+      <h2>お薬の時間のアラーム</h2>
+      <p class="text-sm text-muted">お薬の時間になると、スマホで何をしていても画面いっぱいにお知らせし、音を鳴らします。下の設定をすべて「済み」にしてください。</p>
+      <ul class="native-alarm-checks" id="native-alarm-checks"></ul>
+      <p class="text-sm" id="native-alarm-next" aria-live="polite"></p>
+      <p class="text-sm text-muted">ご家族の飲み忘れのお知らせ（見守る側の通知）は、いまはアプリでは受け取れません。受け取るときは、Chrome で medi-watch を開き、マイページの「プッシュ通知を有効にする」を押してください。</p>
+    </section>
+
+    <section class="card card--warm" id="web-push-card" style="margin-top: var(--space-3);">
       <h2>通知設定</h2>
       <p class="text-sm text-muted">服薬リマインドや家族からのお知らせを受け取ります。</p>
       <button class="btn btn-outline" id="enable-notif-btn">プッシュ通知を有効にする</button>
