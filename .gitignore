@@ -150,3 +150,7 @@ env
 # Claude Code の個人用設定（各自のPCだけで使う許可設定など）
 .claude/settings.local.json
 .claude/settings.json
+
+# Office の一時ファイル（ロック用・保存時の作業用）
+~$*
+~WRL*.tmp
