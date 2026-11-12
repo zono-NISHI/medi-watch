@@ -11,3 +11,28 @@
 #logout-btn:hover {
   background: rgba(181, 84, 74, 0.06);
 }
+
+/* ---- ネイティブ版（Android アプリ）：お薬の時間のアラームの設定 ---- */
+.native-alarm-checks {
+  list-style: none;
+  margin: var(--space-3) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.native-alarm-check {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 2px solid var(--color-terracotta);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+}
+.native-alarm-check.is-ok { border-color: var(--color-line); }
+.native-alarm-check p { margin: 4px 0 0; }
+.native-alarm-ok {
+  font-weight: 700;
+  color: var(--color-sage-deep);
+}

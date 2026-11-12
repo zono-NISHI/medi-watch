@@ -45,8 +45,26 @@ morgan.token('url', (req) => {
 });
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
+// ---- ネイティブ版（Android アプリ）からの API 呼び出しを許可する（CORS） ----
+// アプリの画面はスマホの中（https://localhost）から開くため、サーバーとは別のオリジンになる。
+// 認証は Cookie ではなく Authorization ヘッダーのトークンで行うので、
+// このオリジンを許可しても、他のサイトから利用者になりすました操作はできない。
+const NATIVE_APP_ORIGINS = ['https://localhost', 'capacitor://localhost'];
+app.use('/api', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && NATIVE_APP_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Max-Age', '600');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
+
 // ---- APIルート ----
-// フロントの config.js が API_BASE_URL: '/api' で参照する
+// フロントの config.js が API_BASE_URL: '/api' で参照する（ネイティブ版は Render の URL つき）
 app.use('/api/auth', authRoutes);
 app.use('/api/care-groups', careGroupRoutes);
 app.use('/api/medications', medicationRoutes);

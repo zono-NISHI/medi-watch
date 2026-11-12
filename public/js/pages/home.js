@@ -35,6 +35,9 @@ document.getElementById('today-label').textContent = new Date().toLocaleDateStri
 renderBottomNav('home');
 setupPushToggle();
 PushSetup.syncCurrentUser(); // この端末を、いまログインしている利用者に結び付け直す
+// ネイティブ版：アラームの設定が済んでいなければ、マイページへの案内を出す
+const nativeAlarmNotice = document.getElementById('native-alarm-notice');
+NativeAlarm.renderSetupNotice(nativeAlarmNotice);
 
 // 失敗したら間隔を後退させ、タブが非表示の間は止める
 let pollTimer = null;
@@ -72,6 +75,7 @@ document.addEventListener('visibilitychange', () => {
   } else {
     pollFailures = 0;
     runPoll();
+    NativeAlarm.renderSetupNotice(nativeAlarmNotice); // 設定の画面から戻ってきたとき
   }
 });
 
@@ -511,5 +515,12 @@ async function viewVideo(logId) {
 
 // ---- プッシュ通知の購読設定（処理は js/push.js の PushSetup にまとめている） ----
 function setupPushToggle() {
-  document.getElementById('notif-toggle-btn').addEventListener('click', () => PushSetup.enable());
+  document.getElementById('notif-toggle-btn').addEventListener('click', () => {
+    // ネイティブ版は Web Push を使えないので、アラームの設定を開く
+    if (NativeAlarm.available()) {
+      location.href = 'mypage.html#native-alarm-card';
+      return;
+    }
+    PushSetup.enable();
+  });
 }

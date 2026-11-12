@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">お薬手帳</string>
+    <string name="title_activity_main">お薬手帳</string>
+    <string name="package_name">jp.mediwatch.app</string>
+    <string name="custom_url_scheme">jp.mediwatch.app</string>
+</resources>

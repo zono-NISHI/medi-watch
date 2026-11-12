@@ -8,7 +8,176 @@
 //    （その場合はプッシュ通知で知らせる）
 //  - ブラウザは、利用者が一度も画面に触れていないページでは音を出させない。
 //    そのため、画面に触れた時点で鳴り始める（それまでは画面の表示と案内文だけ）
+//  ネイティブ版（mobile/ の Android アプリ）では:
+//  - 取得した予定を NativeAlarm で端末に渡し、アプリを閉じていても・ロック中でも・
+//    別のアプリを使っていても、端末が時刻どおりに全画面で知らせて音を鳴らす
+//  - 音は端末のアラームが鳴らすので、この画面のアラームは音を出さない
 // ============================================================
+
+// ------------------------------------------------------------
+//  ネイティブ版のアラーム（mobile/android の MediAlarmPlugin とのやり取り）
+//  Web 版（ブラウザ）では何もしない
+// ------------------------------------------------------------
+const NativeAlarm = (() => {
+  // バンドラーを使わないため @capacitor/core は読み込まず、アプリが用意する
+  // Capacitor.nativePromise でネイティブの MediAlarmPlugin のメソッドを呼ぶ
+  const plugin = window.APP_CONFIG?.IS_NATIVE_APP && typeof window.Capacitor?.nativePromise === 'function'
+    ? new Proxy({}, { get: (_, method) => (options = {}) => window.Capacitor.nativePromise('MediAlarm', method, options) })
+    : null;
+  let lastStatus = null;
+
+  // アラームに必要な許可（マイページの「アラームの設定」に順に並べる）
+  const CHECKS = [
+    {
+      key: 'notifications',
+      label: '通知を許可する',
+      why: 'お薬の時間に音を鳴らすために必要です。',
+    },
+    {
+      key: 'fullScreen',
+      label: '全画面での通知を許可する',
+      why: '画面が消えているときや、ロック中に、画面いっぱいに知らせるために必要です。',
+    },
+    {
+      key: 'overlay',
+      label: 'ほかのアプリの上に重ねて表示を許可する',
+      why: 'スマホでほかのアプリを使っている最中でも、画面いっぱいに知らせるために必要です。設定の画面で「お薬手帳」を選び、オンにしてください。',
+    },
+    {
+      key: 'exactAlarm',
+      label: 'アラームとリマインダーを許可する',
+      why: 'お薬の時刻ちょうどに鳴らすために必要です。',
+    },
+  ];
+
+  function available() {
+    return !!plugin;
+  }
+
+  // 予定と「今日もう記録した予定」を端末に渡し、アラームを予約し直す
+  async function sync(schedules, logs, dateStr) {
+    if (!plugin) return null;
+    try {
+      lastStatus = await plugin.sync({
+        date: dateStr,
+        schedules: schedules.map((s) => ({
+          id: s.id,
+          time: String(s.scheduled_time).slice(0, 5),
+          days: s.days_of_week || [0, 1, 2, 3, 4, 5, 6],
+          label: medLabel(s),
+        })),
+        doneIds: logs.filter((l) => l.schedule_id && l.status !== 'pending').map((l) => l.schedule_id),
+      });
+      return lastStatus;
+    } catch (err) {
+      console.warn('[alarm] 端末のアラームの更新に失敗しました:', err);
+      return null;
+    }
+  }
+
+  // 端末のアラームが音を鳴らせる状態か（このときは画面のアラームは音を出さない）
+  function ringsNatively() {
+    return !!plugin && !!lastStatus?.notifications;
+  }
+
+  async function status() {
+    if (!plugin) return null;
+    try {
+      lastStatus = await plugin.getStatus();
+    } catch (err) {
+      console.warn('[alarm] アラームの設定の確認に失敗しました:', err);
+    }
+    return lastStatus;
+  }
+
+  // まだ済んでいない設定
+  function missing(st) {
+    return st ? CHECKS.filter((c) => st[c.key] === false) : [];
+  }
+
+  // 「設定する」を押したとき。通知だけは、まずアプリの中で許可を求める
+  async function fix(key) {
+    if (!plugin) return;
+    if (key === 'notifications') {
+      const st = await plugin.requestNotificationPermission().catch(() => null);
+      if (st?.notifications) {
+        lastStatus = st;
+        return;
+      }
+    }
+    await plugin.openSettings({ target: key });
+  }
+
+  // ログアウトしたら、この端末で鳴らさないようにする
+  async function clear() {
+    if (!plugin) return;
+    try {
+      await plugin.clear();
+    } catch (err) {
+      console.warn('[alarm] 端末のアラームの取り消しに失敗しました:', err);
+    }
+  }
+
+  // ホーム：設定が済んでいなければ、マイページへの案内を出す
+  async function renderSetupNotice(container) {
+    if (!plugin || !container) return;
+    const todo = missing(await status());
+    container.hidden = todo.length === 0;
+    if (todo.length === 0) return;
+    container.innerHTML = `
+      <div class="card card--warm native-alarm-notice">
+        <p><strong>お薬の時間のアラームの設定が、まだ終わっていません。</strong></p>
+        <p class="text-sm">このままでは、アプリを閉じているときにお知らせできないことがあります。</p>
+        <a class="btn btn-accent" href="mypage.html#native-alarm-card">アラームを設定する</a>
+      </div>`;
+  }
+
+  // マイページ：設定の一覧（済み／設定する）を描く
+  async function renderChecks(listEl, nextEl) {
+    if (!plugin || !listEl) return;
+    const st = await status();
+    if (!st) return;
+    listEl.innerHTML = CHECKS.map((c) => {
+      const ok = st[c.key] !== false;
+      return `
+        <li class="native-alarm-check ${ok ? 'is-ok' : ''}">
+          <div>
+            <strong>${escapeHtml(c.label)}</strong>
+            <p class="text-sm text-muted">${escapeHtml(c.why)}</p>
+          </div>
+          ${ok
+            ? '<span class="native-alarm-ok">済み ✓</span>'
+            : `<button type="button" class="btn btn-accent" data-fix="${c.key}">設定する</button>`}
+        </li>`;
+    }).join('');
+    listEl.querySelectorAll('[data-fix]').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        await fix(btn.dataset.fix);
+        renderChecks(listEl, nextEl);
+      })
+    );
+    if (nextEl) {
+      const next = Number(st.nextAlarmAt) || 0;
+      nextEl.textContent = next
+        ? `次のアラーム：${new Date(next).toLocaleString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
+        : '次のアラーム：予定はありません（「お薬」でお薬と服薬時刻を登録すると、ここに表示されます）';
+    }
+  }
+
+  function medLabel(schedule) {
+    const med = schedule.medications || {};
+    const amount = `${med.dosage || ''}${med.unit || ''}`;
+    return `${med.name || 'お薬'}${amount ? ` ${amount}` : ''}`;
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+  }
+
+  return { available, sync, ringsNatively, status, missing, fix, clear, renderSetupNotice, renderChecks };
+})();
 
 const MedAlarm = (() => {
   const ALARM_WINDOW_MIN = 60; // 服薬時刻から何分間アラームを出すか（それ以降はホームの「時間が過ぎています」で案内）
@@ -64,6 +233,8 @@ const MedAlarm = (() => {
         schedules = s || [];
         logs = l || [];
         fetchedAt = Date.now();
+        // ネイティブ版：アプリを閉じていても鳴らせるよう、端末のアラームを予約し直す
+        await NativeAlarm.sync(schedules, logs, localDateStr(new Date()));
       } catch (err) {
         console.warn('[alarm] 予定の取得に失敗しました:', err);
       }
@@ -153,7 +324,7 @@ const MedAlarm = (() => {
 
     if (!dialog.open) {
       dialog.showModal();
-      startSound();
+      if (!NativeAlarm.ringsNatively()) startSound(); // ネイティブ版は端末のアラームが鳴らす
       requestWakeLock();
     }
   }
@@ -308,7 +479,7 @@ const MedAlarm = (() => {
       fetchedAt = 0;
       tick().then(() => {
         if (dialog?.open) {
-          startSound();
+          if (!NativeAlarm.ringsNatively()) startSound();
           requestWakeLock();
         }
       });

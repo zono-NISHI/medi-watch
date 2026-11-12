@@ -122,3 +122,7 @@
 
 /* 表示する人の切り替え（.view-switcher / .view-chip）は base.css に移した（お薬・記録の画面でも使うため） */
 .empty-state .btn + .btn { margin-top: var(--space-2); }
+
+/* ネイティブ版（Android アプリ）で、アラームの設定が済んでいないときの案内 */
+.native-alarm-notice { margin-bottom: var(--space-3); }
+.native-alarm-notice p { margin: 0 0 var(--space-2); }
