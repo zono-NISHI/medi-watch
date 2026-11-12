@@ -18,7 +18,25 @@ const addLogBtn = document.getElementById('add-log-btn');
 
 let shownLogs = new Map(); // いま表示している記録（id → 記録）。変更画面を開くときに使う
 
-dateFilter.addEventListener('change', loadLogs);
+// 日付を選んでいないあいだは、日付欄に「📅 日付を選ぶ」の案内を重ねて表示する（logs.css）
+const datePicker = document.getElementById('date-picker');
+function syncDatePlaceholder() {
+  datePicker.classList.toggle('has-value', Boolean(dateFilter.value));
+}
+syncDatePlaceholder();
+dateFilter.addEventListener('input', syncDatePlaceholder);
+// 案内を重ねているとパソコンでは📅のボタンが隠れるため、欄のどこを押してもカレンダーを開く
+dateFilter.addEventListener('click', () => {
+  try {
+    dateFilter.showPicker?.();
+  } catch {
+    // 古いブラウザなどで開けないときは、ブラウザ標準の動きに任せる
+  }
+});
+dateFilter.addEventListener('change', () => {
+  syncDatePlaceholder();
+  loadLogs();
+});
 statusFilter.addEventListener('change', loadLogs);
 
 ViewTarget.init()

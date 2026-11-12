@@ -2,7 +2,38 @@
    服薬記録履歴ページ専用スタイル
    ============================================================ */
 
-#date-filter, #status-filter { width: auto; flex: 1; }
+/* 日付・状態の絞り込み。見出しの高さをそろえるため上端で並べる */
+.log-filters { align-items: flex-start; }
+.log-filter { flex: 1; min-width: 0; }
+
+/* 日付の欄。スマホ（特に iPhone）では未選択の日付欄が空白になり、
+   押せる欄だと分かりにくいので、未選択のあいだだけ「📅 日付を選ぶ」を重ねて表示する。
+   案内は pointer-events: none にして、押すと下の日付欄が反応するようにする */
+.date-picker { position: relative; }
+.date-picker input[type="date"] {
+  display: block;
+  /* iPhone では見た目が他の欄とそろわないことがあるため、標準の見た目を外す */
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: left;
+}
+.date-picker input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+.date-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+  color: var(--color-ink-soft);
+  pointer-events: none;
+  /* 枠線（2px）の内側に収め、枠は日付欄のものを見せる */
+  margin: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.date-picker.has-value .date-placeholder { display: none; }
 
 .log-card {
   background: var(--color-white);
