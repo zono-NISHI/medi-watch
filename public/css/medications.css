@@ -89,5 +89,11 @@
   cursor: pointer;
 }
 
+/* 同じ時刻が2つあるときに、その行を赤茶の枠で示す */
+.schedule-row.is-duplicate {
+  outline: 3px solid var(--color-clay);
+  outline-offset: -3px;
+}
+
 /* 単位のプルダウンで「その他」を選んだときに出る入力欄 */
 .unit-picker .unit-other { margin-top: 0.5rem; }

@@ -7,6 +7,7 @@ const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
 const { parseJahisQr } = require('../services/jahisParser');
 const { syncTodayLog } = require('../lib/scheduleLogs');
+const { findDuplicateTime, duplicateTimeError } = require('../lib/scheduleTimes');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -62,6 +63,12 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, dosage, unit, notes, start_date, end_date, schedules } = req.body;
     if (!name) return res.status(400).json({ error: '薬の名前は必須です。' });
+
+    // 同じ時刻が2つあれば、お薬を登録する前に止める（お薬だけが登録された状態を残さないため）
+    if (Array.isArray(schedules)) {
+      const dup = findDuplicateTime(schedules.map((s) => s.scheduled_time));
+      if (dup) return res.status(409).json(duplicateTimeError(dup));
+    }
 
     const { data: medication, error } = await req.supabase
       .from('medications')
@@ -164,10 +171,17 @@ router.post(
 //   id あり → 時刻・食事との関係を更新 ／ id なし → 追加 ／ 渡されなかったもの → 停止
 // 外したスケジュールは削除せず停止（is_active = false）にする。削除すると
 // それまでの服薬記録まで消えてしまうため（medication_logs は ON DELETE CASCADE）。
+// 保存後のスケジュールは渡された schedules そのものになるので、その中に同じ時刻が2つあれば
+// 何も書き換えずに止める。
 // ----------------------------------------------------------
 router.patch(
   '/:id',
   asyncHandler(async (req, res) => {
+    if (Array.isArray(req.body.schedules)) {
+      const dup = findDuplicateTime(req.body.schedules.map((s) => s.scheduled_time));
+      if (dup) return res.status(409).json(duplicateTimeError(dup));
+    }
+
     const allowed = ['name', 'dosage', 'unit', 'notes', 'start_date', 'end_date', 'is_active'];
     const updates = {};
     for (const key of allowed) {

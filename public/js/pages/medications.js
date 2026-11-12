@@ -203,12 +203,42 @@ function openManualModal(id, knownMedications) {
   manualModal.showModal();
 }
 
+// 「+ 時間を追加」で増やす行の時刻。すでにある時刻と重ならないよう、朝・昼・夕・寝る前の順に空いている時刻を使う
+const DEFAULT_TIMES = ['08:00', '12:00', '18:00', '21:00'];
+
+function scheduleRowTimes() {
+  return [...scheduleRowsEl.querySelectorAll('.s-time')].map((input) => input.value);
+}
+
+function nextFreeTime() {
+  const used = new Set(scheduleRowTimes());
+  return DEFAULT_TIMES.find((t) => !used.has(t)) || DEFAULT_TIMES[0];
+}
+
+// 同じ時刻の行に印を付け、重複している時刻（なければ null）を返す
+function markDuplicateRows() {
+  const rows = [...scheduleRowsEl.querySelectorAll('.schedule-row')];
+  const counts = {};
+  rows.forEach((row) => {
+    const t = row.querySelector('.s-time').value;
+    counts[t] = (counts[t] || 0) + 1;
+  });
+  let duplicate = null;
+  rows.forEach((row) => {
+    const t = row.querySelector('.s-time').value;
+    const isDup = counts[t] > 1;
+    row.classList.toggle('is-duplicate', isDup);
+    if (isDup && !duplicate) duplicate = t;
+  });
+  return duplicate;
+}
+
 function addScheduleRow(existing) {
   const row = document.createElement('div');
   row.className = 'schedule-row';
   if (existing?.id) row.dataset.scheduleId = existing.id; // 編集時、既存のスケジュールを更新するため
   row.innerHTML = `
-    <input type="time" class="s-time" value="${existing?.scheduled_time?.slice(0, 5) || '08:00'}" required />
+    <input type="time" class="s-time" value="${existing?.scheduled_time?.slice(0, 5) || nextFreeTime()}" required />
     <select class="s-meal">
       <option value="before" ${existing?.meal_timing === 'before' ? 'selected' : ''}>食前</option>
       <option value="after" ${!existing || existing?.meal_timing === 'after' ? 'selected' : ''}>食後</option>
@@ -217,7 +247,15 @@ function addScheduleRow(existing) {
     </select>
     <button type="button" class="remove-row" aria-label="この時間を削除">×</button>
   `;
-  row.querySelector('.remove-row').addEventListener('click', () => row.remove());
+  row.querySelector('.remove-row').addEventListener('click', () => {
+    row.remove();
+    // 重なっていた相手の行を消したら、残った行の印も外す
+    if (scheduleRowsEl.querySelector('.is-duplicate')) markDuplicateRows();
+  });
+  // 時刻を直したら、印をその場で付け直す（印が出ているときだけ。入力の途中で赤くしないため）
+  row.querySelector('.s-time').addEventListener('change', () => {
+    if (scheduleRowsEl.querySelector('.is-duplicate')) markDuplicateRows();
+  });
   scheduleRowsEl.appendChild(row);
 }
 
@@ -229,6 +267,14 @@ manualForm.addEventListener('submit', async (e) => {
     unit: getUnitValue(document.getElementById('m-unit-picker')),
     notes: document.getElementById('m-notes').value.trim(),
   };
+
+  // 同じお薬に同じ時刻が2つあると、通知やアラームが2回ずつになるため、保存させない
+  const duplicate = markDuplicateRows();
+  if (duplicate) {
+    showToast(`${duplicate} の服薬時刻が2つあります。時刻を変えるか、「×」で1つにまとめてください。`, 'error');
+    scheduleRowsEl.querySelector('.is-duplicate .s-time')?.focus();
+    return;
+  }
 
   const schedules = [...scheduleRowsEl.querySelectorAll('.schedule-row')].map((row) => ({
     ...(row.dataset.scheduleId ? { id: row.dataset.scheduleId } : {}),

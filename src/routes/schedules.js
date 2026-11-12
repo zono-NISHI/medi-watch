@@ -5,6 +5,7 @@ const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
 const { syncTodayLog } = require('../lib/scheduleLogs');
+const { duplicateTimeError, hasActiveScheduleAt, toHHMM } = require('../lib/scheduleTimes');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -42,6 +43,11 @@ router.post(
       return res.status(400).json({ error: '薬とスケジュール時刻は必須です。' });
     }
 
+    // 同じお薬に同じ時刻のスケジュールがすでにあれば登録しない
+    const { found, error: dupErr } = await hasActiveScheduleAt(req.supabase, medication_id, scheduled_time);
+    if (dupErr) return sendSupabaseError(res, dupErr, 'スケジュールの確認に失敗しました。');
+    if (found) return res.status(409).json(duplicateTimeError(toHHMM(scheduled_time)));
+
     const { data, error } = await req.supabase
       .from('medication_schedules')
       .insert({
@@ -71,6 +77,24 @@ router.patch(
     const updates = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+
+    // 時刻を変える・停止中のものを再開するときは、同じお薬の同じ時刻と重ならないか確かめる
+    if (updates.scheduled_time !== undefined || updates.is_active === true) {
+      const { data: target, error: getErr } = await req.supabase
+        .from('medication_schedules')
+        .select('id, medication_id, scheduled_time, is_active')
+        .eq('id', req.params.id)
+        .single();
+      if (getErr) return sendSupabaseError(res, getErr, 'スケジュールが見つかりません。');
+
+      const willBeActive = updates.is_active ?? target.is_active;
+      const time = updates.scheduled_time ?? target.scheduled_time;
+      if (willBeActive) {
+        const { found, error: dupErr } = await hasActiveScheduleAt(req.supabase, target.medication_id, time, target.id);
+        if (dupErr) return sendSupabaseError(res, dupErr, 'スケジュールの確認に失敗しました。');
+        if (found) return res.status(409).json(duplicateTimeError(toHHMM(time)));
+      }
     }
 
     const { data, error } = await req.supabase
