@@ -2,18 +2,46 @@
 //  UI共通ユーティリティ
 // ============================================================
 
+// showModal() で開いた画面（<dialog>）は、ブラウザの最前面の層に出る。
+// body に置いたトーストは z-index をいくら大きくしてもその裏に隠れてしまうため、
+// モーダルを開いているあいだは、トーストの置き場所をそのモーダルの中に移す。
+function openModalDialog() {
+  const open = [...document.querySelectorAll('dialog[open]')].filter((d) => {
+    try {
+      return d.matches(':modal'); // show() で開いた（モーダルでない）ものは除く
+    } catch (_) {
+      return true; // :modal に対応していない古いブラウザ
+    }
+  });
+  // 重なっているときは、あとから開いたもの（アラームなど。body の末尾に足される）を選ぶ
+  return open[open.length - 1] || null;
+}
+
+function placeToastArea(area) {
+  const dialog = openModalDialog();
+  const parent = dialog || document.body;
+  if (area.parentElement !== parent) parent.appendChild(area);
+  // モーダルを閉じたら、表示中のトーストが一緒に消えないよう、置き場所を戻す
+  // （「登録しました」を出した直後に画面を閉じる場合など）
+  if (dialog && !dialog.dataset.toastCloseHook) {
+    dialog.dataset.toastCloseHook = '1';
+    dialog.addEventListener('close', () => placeToastArea(area));
+  }
+}
+
 function ensureToastArea() {
   let area = document.querySelector('.toast-area');
   if (!area) {
     area = document.createElement('div');
     area.className = 'toast-area';
     area.setAttribute('aria-live', 'polite');
-    document.body.appendChild(area);
   }
+  placeToastArea(area);
   return area;
 }
 
-function showToast(message, type = 'info', duration = 3200) {
+// duration を指定しない場合、エラーは読み終わる前に消えないよう長めに出す
+function showToast(message, type = 'info', duration = type === 'error' ? 6000 : 3200) {
   const area = ensureToastArea();
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
