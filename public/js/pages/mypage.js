@@ -11,7 +11,6 @@ MedAlarm.start(); // 服薬時刻になったら、この画面でもアラー�
 
 const profileForm = document.getElementById('profile-form');
 const nameInput = document.getElementById('p-name');
-const phoneInput = document.getElementById('p-phone');
 const featuresForm = document.getElementById('features-form');
 const beWatchedInput = document.getElementById('f-be-watched');
 const watchInput = document.getElementById('f-watch');
@@ -24,7 +23,6 @@ const featuresSummary = document.getElementById('f-summary');
     const current = Session.get();
     Session.set(current.session, current.user, profile);
     nameInput.value = profile.name || '';
-    phoneInput.value = profile.phone || '';
     beWatchedInput.checked = profile.can_be_watched !== false;
     watchInput.checked = profile.can_watch !== false;
     renderFeaturesSummary();
@@ -82,10 +80,7 @@ featuresForm.addEventListener('submit', async (e) => {
 
 profileForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const payload = {
-    name: nameInput.value.trim(),
-    phone: phoneInput.value.trim() || null,
-  };
+  const payload = { name: nameInput.value.trim() };
   try {
     const { profile } = await Api.updateMe(payload);
     const current = Session.get();

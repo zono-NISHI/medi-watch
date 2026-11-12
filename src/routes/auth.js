@@ -614,7 +614,8 @@ router.get(
 
 // ----------------------------------------------------------
 // PATCH /api/auth/me
-// プロフィール更新（氏名・電話番号・使う機能）
+// プロフィール更新（氏名・使う機能）
+//   電話番号は使い道がないため受け付けない（profiles.phone の列は既存データのために残している）
 //   can_watch / can_be_watched は、見守りの相手がいるあいだは OFF にできない
 //   （DBのトリガーが止め、sendSupabaseError が STILL_WATCHING などを返す）
 // ----------------------------------------------------------
@@ -622,10 +623,9 @@ router.patch(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { name, phone, can_watch, can_be_watched } = req.body;
+    const { name, can_watch, can_be_watched } = req.body;
     const updates = {};
     if (name !== undefined) updates.name = name;
-    if (phone !== undefined) updates.phone = phone;
     for (const [key, value] of Object.entries({ can_watch, can_be_watched })) {
       if (value === undefined) continue;
       if (typeof value !== 'boolean') {
