@@ -25,14 +25,25 @@
     <!-- 付け忘れた服薬をあとから登録する（自分の記録を表示しているときだけ出す） -->
     <button class="btn btn-accent" id="add-log-btn" style="margin-bottom: var(--space-3);" hidden>＋ 服薬の記録を追加する</button>
 
-    <div class="row" style="margin-bottom: var(--space-3);">
-      <input type="date" id="date-filter" />
-      <select id="status-filter">
+    <div class="row log-filters" style="margin-bottom: var(--space-3);">
+      <!-- スマホでは、日付を選ぶまで欄が空白になり、押せる欄だと分かりにくいため、
+           見出しと「日付を選ぶ」の案内を重ねて表示する（日付を選ぶと案内は消える） -->
+      <div class="field log-filter">
+        <label for="date-filter">日付</label>
+        <div class="date-picker" id="date-picker">
+          <input type="date" id="date-filter" />
+          <span class="date-placeholder" aria-hidden="true">📅 日付を選ぶ</span>
+        </div>
+      </div>
+      <div class="field log-filter">
+        <label for="status-filter">状態</label>
+        <select id="status-filter">
         <option value="">すべて</option>
         <option value="taken">服薬済み</option>
         <option value="pending">未記録</option>
         <option value="skipped">スキップ</option>
-      </select>
+        </select>
+      </div>
     </div>
 
     <section id="log-list" class="stack" aria-live="polite">
