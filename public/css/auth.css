@@ -77,24 +77,88 @@
   cursor: pointer;
 }
 
+/* 選択肢カード。高齢の方が「どれを選んでいるか」をひと目で分かるよう、
+   枠の色だけに頼らず「左の丸印（✓）」「背景の塗り」「選択中の札」の3つで示す。 */
 .role-card {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  padding: var(--space-3) var(--space-2);
-  border: 2px solid var(--color-line);
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 3px solid var(--color-line);
   border-radius: var(--radius-md);
+  background: var(--color-white);
   min-height: var(--tap-min);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+/* 左の丸印：選ぶ前は白い丸、選ぶと藍色に塗られて ✓ が付く */
+.role-mark {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-top: 0.1rem;
+  border: 3px solid var(--color-ink-soft);
+  border-radius: 50%;
+  background: var(--color-white);
+  color: var(--color-white);
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
   justify-content: center;
 }
 
+.role-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.role-title {
+  font-size: var(--fs-md);
+  line-height: 1.4;
+  color: var(--color-ink);
+}
+.role-desc {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--color-ink-soft);
+}
+
+/* 「選択中」の札：選んだカードにだけ出す */
+.role-badge {
+  display: none;
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.15rem 0.8rem;
+  border-radius: 999px;
+  background: var(--color-indigo);
+  color: var(--color-white);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.role-option:hover .role-card { border-color: var(--color-indigo); }
+
+/* 選んだカード */
 .role-option input:checked + .role-card {
   border-color: var(--color-indigo);
-  background: rgba(44, 74, 82, 0.06);
+  background: #e3ecee; /* 藍色をうすく敷いて、白いカードとの差をはっきりさせる */
+  box-shadow: 0 0 0 2px var(--color-indigo);
 }
+.role-option input:checked + .role-card .role-mark {
+  border-color: var(--color-indigo);
+  background: var(--color-indigo);
+}
+.role-option input:checked + .role-card .role-mark::before { content: '✓'; }
+.role-option input:checked + .role-card .role-title { color: var(--color-indigo-deep); }
+.role-option input:checked + .role-card .role-desc { color: var(--color-ink); }
+.role-option input:checked + .role-card .role-badge { display: inline-block; }
+
 .role-option input:focus-visible + .role-card {
   outline: 3px solid var(--color-terracotta);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
 
