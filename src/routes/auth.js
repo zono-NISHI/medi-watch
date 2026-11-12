@@ -217,10 +217,11 @@ async function sendMailAndRespond(res, { tag, send, successMessage }) {
   return res.json({ message: successMessage });
 }
 
-// 登録画面で選んだ「使い方」→ プロフィールに保存する内容
-//   ・watched : 自分のお薬を記録し、家族に見守ってもらう（高齢の方向け。見守る操作は出さない）
-//   ・watcher : 家族の服薬を見守る（自分のお薬の記録もできる）
-//   ・self    : 自分のお薬の管理だけ
+// 登録画面で選んだ「ご家族との使い方」→ プロフィールに保存する内容
+// お薬の記録はどれを選んでも使える。ここで決まるのは見守りの機能だけ。
+//   ・watched : 家族に見守ってもらう（高齢の方向け。見守る操作は出さない）
+//   ・watcher : 家族の服薬を見守る
+//   ・self    : 今は家族とつながらない（自分のお薬の管理だけ）
 // 登録後も、マイページの「使う機能」で変更できる。
 const SIGNUP_USAGES = {
   watched: { role: 'patient', can_watch: false, can_be_watched: true },

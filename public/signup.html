@@ -25,29 +25,32 @@
           <div class="form-error__actions" id="form-error-actions" hidden></div>
         </div>
 
-        <!-- 使い方によって、使える機能（見守る／見守ってもらう）が決まる。
-             お薬を飲むご本人が迷わないよう、見守る操作は「家族を見守る」を選んだ人にだけ出す。 -->
+        <!-- お薬の記録はどれを選んでも使える基本の機能。ここで選ぶのは「ご家族とのつながり方」
+             （見守る／見守ってもらう）だけで、選んだ内容で使える見守りの機能が決まる。
+             お薬を飲むご本人が迷わないよう、見守る操作は「家族を見守る」を選んだ人にだけ出す。
+             「つながらない」は何も足さない選択肢なので最後に置く。 -->
         <fieldset class="role-select">
-          <legend class="role-legend">どのように使いますか</legend>
+          <legend class="role-legend">ご家族とどのように使いますか</legend>
+          <p class="role-lead">お薬の記録・服薬のアラームは、どれを選んでもお使いいただけます。</p>
           <label class="role-option">
             <input type="radio" name="usage" value="watched" checked />
             <span class="role-card">
               <strong>家族に見守ってもらう</strong>
-              <span class="text-sm text-muted">お薬の記録をつけて、飲んだかどうかをご家族に見てもらいます</span>
-            </span>
-          </label>
-          <label class="role-option">
-            <input type="radio" name="usage" value="self" />
-            <span class="role-card">
-              <strong>自分のお薬の管理だけ</strong>
-              <span class="text-sm text-muted">お薬の記録だけをつけます。ご家族とはつながりません</span>
+              <span class="text-sm text-muted">お薬を飲んだかどうかを、ご家族に見てもらいます</span>
             </span>
           </label>
           <label class="role-option">
             <input type="radio" name="usage" value="watcher" />
             <span class="role-card">
               <strong>家族を見守る</strong>
-              <span class="text-sm text-muted">ご家族の服薬を見守ります。ご自分のお薬の記録もできます</span>
+              <span class="text-sm text-muted">ご家族がお薬を飲んだかどうかを見守ります</span>
+            </span>
+          </label>
+          <label class="role-option">
+            <input type="radio" name="usage" value="self" />
+            <span class="role-card">
+              <strong>今は家族とつながらない</strong>
+              <span class="text-sm text-muted">ご自分だけで使います。見守りはあとからマイページで始められます</span>
             </span>
           </label>
           <p class="text-sm text-muted role-note">あとから「マイページ」で変更できます。</p>
