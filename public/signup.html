@@ -31,7 +31,11 @@
              「つながらない」は何も足さない選択肢なので最後に置く。 -->
         <fieldset class="role-select">
           <legend class="role-legend">ご家族とどのように使いますか</legend>
+          <!-- 「あとで変えられる」は選ぶ前に知っていれば迷わずに済むため、選択肢の上に置く。
+               何を・どこで変えられるかを、マイページの見出し名（使う機能）まで書いて示す。
+               マイページでは両方を選べるが、ここでは1つだけ選ぶため、その旨も添える。 -->
           <p class="role-lead">お薬の記録・服薬のアラームは、どれを選んでもお使いいただけます。</p>
+          <p class="role-lead">ここで選んだ使い方は、あとからマイページの「使う機能」で変えられます。両方使いたい方も、まずはどちらか1つを選んでください。</p>
           <label class="role-option">
             <input type="radio" name="usage" value="watched" checked />
             <span class="role-card">
@@ -60,12 +64,11 @@
               <span class="role-mark" aria-hidden="true"></span>
               <span class="role-body">
                 <strong class="role-title">今は家族とつながらない</strong>
-                <span class="role-desc">ご自分だけで使います。見守りはあとからマイページで始められます</span>
+                <span class="role-desc">ご自分だけで使います</span>
                 <span class="role-badge" aria-hidden="true">選択中</span>
               </span>
             </span>
           </label>
-          <p class="text-sm text-muted role-note">あとから「マイページ」で変更できます。</p>
         </fieldset>
 
         <div class="field">
