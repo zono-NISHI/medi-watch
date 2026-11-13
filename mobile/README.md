@@ -31,7 +31,7 @@ mobile/
 
 ## 初めての準備（1回だけ）
 
-1. **Android Studio** をインストールする（https://developer.android.com/studio）。初回起動時の案内に従って Android SDK も入れる。
+1. **Android Studio** をインストールする（https://developer.android.com/studio）。初回起動時の案内に従って Android SDK も入れる。詳しい手順は [Android Studioのインストール手順.md](Android%20Studioのインストール手順.md)（SDK Manager で Android 16.0 / API 36 を追加するのを忘れないこと）。
 2. ターミナルで次を実行する。
    ```
    cd mobile
