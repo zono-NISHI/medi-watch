@@ -27,7 +27,7 @@ self.addEventListener('push', (event) => {
   const options = {
     body: payload.body || '',
     icon: 'assets/icon-192.png',
-    badge: 'assets/icon-192.png',
+    badge: 'assets/badge-96.png', // ステータスバー用（白一色＋透明の画像でないと四角く潰れる）
     data: { logId: payload.logId, type: payload.type, patientId: payload.patientId, url: payload.url },
     vibrate: [300, 100, 300, 100, 300],
     tag,

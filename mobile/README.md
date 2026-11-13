@@ -72,6 +72,13 @@ npx cap sync android
 アプリの画面のコンソール：パソコンの Chrome で `chrome://inspect` を開き、USB でつないだスマホのアプリ（WebView）の「inspect」を押す。
 ネイティブ側のログ：Android Studio の「Logcat」で `MediAlarm` を検索する。
 
+### アイコンを変えるとき
+アプリのアイコン（Web 版の `public/assets/` と、`android/app/src/main/res/mipmap-*/`）は、リポジトリのルートの `scripts/generate-icons.ps1` で描いている。図柄や色を変えるときはこのスクリプトを直し、ルートで次を実行して全サイズを作り直す（Windows 標準の機能だけで動く）。
+```
+powershell -ExecutionPolicy Bypass -File scripts/generate-icons.ps1
+```
+アダプティブアイコン（Android 8 以降）の背景色は `android/app/src/main/res/values/ic_launcher_background.xml`。アイコンを変えたら APK を作り直して入れ直す。スマホによってはホーム画面に古いアイコンが残るので、そのときはアプリを一度アンインストールしてから入れる。
+
 ## 他の人のスマホに配る（APK）
 
 1. Android Studio の「Build」→「Generate Signed App Bundle or APK…」→「APK」を選ぶ。
