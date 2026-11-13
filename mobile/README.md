@@ -69,6 +69,8 @@ npx cap sync android
 & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" devices
 ```
 
+作業を終えるとき（テスト用のお薬の削除、Android Studio の終了など）と、再開するときの手順は [開発を一時終了するときの手順.md](開発を一時終了するときの手順.md) を参照。
+
 ## パソコン・スマホを変えたとき
 
 Git に入っていないもの（`node_modules/`、`android/app/src/main/assets/public/` などの `npx cap sync` で作られるファイル、Android Studio の設定 `.idea/gradle.xml`、`local.properties`）は、パソコンごとに作り直す必要がある。また、USB デバッグの許可は「パソコンとスマホの組み合わせ」ごと、アラームの権限はスマホごとに必要になる。
