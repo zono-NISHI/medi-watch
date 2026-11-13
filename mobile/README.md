@@ -39,6 +39,8 @@ mobile/
    npx cap sync android
    ```
 3. `npx cap open android` で Android Studio が開く（開かない場合は、Android Studio の「Open」で `mobile/android` を選ぶ）。初回は Gradle の同期に数分かかる。
+   - 「Trust and Open Project 'android'?」と出たら「Trust Project」を押す（自分たちのリポジトリなので信頼してよい。「Preview in Safe Mode」ではビルドできない）。
+   - 「Please Select Gradle JVM to Import Project」（Java のバージョンが合わない）と出たら「Use JVM 21」を押す。出なくても、同期でエラーになる場合は「File」→「Settings」→「Build, Execution, Deployment」→「Build Tools」→「Gradle」の「Gradle JDK」で jbr-21 を選び、象のアイコン（Sync Project with Gradle Files）で同期し直す。
 
 ## 自分のスマホで動かす
 
@@ -53,6 +55,38 @@ cd mobile
 npx cap sync android
 ```
 （Web 版は develop へのマージで Render に出るが、**アプリの画面は APK を作り直して入れ直すまで変わらない**。API（サーバー）の変更は、すぐにアプリにも反映される。）
+
+### スマホが Android Studio に出ないとき
+「USB デバッグを許可しますか？」が出ない・端末を選べないときは、パソコンがスマホを認識できていない。次の順に確かめる。
+1. 開発者向けオプションの「USB デバッグ」がオンになっているか（開発者向けオプションを出しただけではオフのまま）。
+2. スマホの通知欄の「USB の設定」で「ファイル転送」を選ぶ（「充電のみ」だとダイアログが出ないことがある）。
+3. データ転送に対応した USB ケーブルを使う（充電専用のケーブルでは認識されない）。パソコン本体の USB ポートに直接さす。
+4. 開発者向けオプションの「USB デバッグ承認の取り消し」を押し、USB デバッグをオフ → オンにしてからつなぎ直す。
+5. Pixel 以外の機種は、メーカーの USB ドライバが要ることがある（デバイスマネージャーで「！」が付いていたら未導入）。
+
+認識されたかは、PowerShell で次を実行して確かめる。`device` と出れば成功、`unauthorized` ならスマホの画面で許可する、何も出なければ未認識。
+```
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" devices
+```
+
+## パソコン・スマホを変えたとき
+
+Git に入っていないもの（`node_modules/`、`android/app/src/main/assets/public/` などの `npx cap sync` で作られるファイル、Android Studio の設定 `.idea/gradle.xml`、`local.properties`）は、パソコンごとに作り直す必要がある。また、USB デバッグの許可は「パソコンとスマホの組み合わせ」ごと、アラームの権限はスマホごとに必要になる。
+
+| 手順 | 違うパソコン | 違うスマホ（同じパソコン） | 同じパソコン・同じスマホで続きの作業 |
+|---|---|---|---|
+| Android Studio・SDK（API 36）のインストール | 必要 | 不要 | 不要 |
+| `npm install` | 必要 | 不要 | `mobile/package.json` が変わったときだけ |
+| `npx cap sync android` | 必要 | 不要 | `public/` を変えたときは毎回 |
+| Android Studio で開く（Trust Project・Gradle JVM 21 の選択） | 必要 | 不要 | 不要 |
+| スマホの開発者向けオプション・USB デバッグ ON | 不要（同じスマホなら） | 必要 | 不要 |
+| 「USB デバッグを許可しますか？」で許可 | 必要 | 必要 | 不要（「常に許可」にした場合） |
+| マイページの「お薬の時間のアラーム」の4つの設定 | 不要（同じスマホなら） | 必要 | 不要 |
+| 電池の最適化を「制限なし」にする | 不要（同じスマホなら） | 機種によって必要 | 不要 |
+| 署名用の鍵（keystore） | **新しく作らない**。最初に作った鍵ファイルを新しいパソコンへコピーして使う | 不要 | 不要 |
+
+- 署名用の鍵を新しく作り直すと別のアプリ扱いになり、相手のスマホで更新版を上書きインストールできなくなる。
+- `npx cap sync` のあと、`capacitor.build.gradle` や `capacitor.settings.gradle` が Git で「変更あり」になることがある。中身が改行コード（LF/CRLF）の違いだけなら、コミットしなくてよい（`git checkout -- mobile/android` で戻せる）。
 
 ## 動作の確認
 
