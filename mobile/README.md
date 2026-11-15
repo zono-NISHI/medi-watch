@@ -31,14 +31,20 @@ mobile/
 
 ## 初めての準備（1回だけ）
 
-1. **Android Studio** をインストールする（https://developer.android.com/studio）。初回起動時の案内に従って Android SDK も入れる。詳しい手順は [Android Studioのインストール手順.md](Android%20Studioのインストール手順.md)（SDK Manager で Android 16.0 / API 36 を追加するのを忘れないこと）。
-2. ターミナルで次を実行する。
+1. **Node.js** をインストールする（`npm` / `npx` を使うため。Capacitor 8 には Node.js 22 以上が必要）。
+   - https://nodejs.org/ja/download を開き、「Windows」「LTS」と書かれたバージョン、アーキテクチャ「x64」（Snapdragon などの ARM のパソコンなら「ARM64」）を選んで、「Windows インストーラー (.msi)」をダウンロードする。同じページにある「fnm」のコマンド（`winget install Schniz.fnm` など）は別のインストール方法なので、実行しなくてよい。
+   - .msi を開き、初期設定のまま「Next」で進める（「Add to PATH」は有効のまま。「Tools for Native Modules」のチェックは外したままでよい）。
+   - インストール後は **VS Code（ターミナル）を完全に閉じて開き直す**。開いたままのターミナルでは `npm` が見つからない。新しいターミナルで `node -v` と `npm -v` を実行し、バージョンが表示されれば完了。
+   - `npm` を実行して「用語 'npm' は、コマンドレット、関数、…として認識されません」と出るときは、Node.js が入っていないか、インストール前に開いたターミナルを使っている。
+   - 「このシステムではスクリプトの実行が無効になっているため…」と出るときは、PowerShell で `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` を一度だけ実行してから、もう一度試す。
+2. **Android Studio** をインストールする（https://developer.android.com/studio）。初回起動時の案内に従って Android SDK も入れる。詳しい手順は [Android Studioのインストール手順.md](Android%20Studioのインストール手順.md)（SDK Manager で Android 16.0 / API 36 を追加するのを忘れないこと）。
+3. ターミナルで次を実行する。
    ```
    cd mobile
    npm install
    npx cap sync android
    ```
-3. `npx cap open android` で Android Studio が開く（開かない場合は、Android Studio の「Open」で `mobile/android` を選ぶ）。初回は Gradle の同期に数分かかる。
+4. `npx cap open android` で Android Studio が開く（開かない場合は、Android Studio の「Open」で `mobile/android` を選ぶ）。初回は Gradle の同期に数分かかる。
    - 「Trust and Open Project 'android'?」と出たら「Trust Project」を押す（自分たちのリポジトリなので信頼してよい。「Preview in Safe Mode」ではビルドできない）。
    - 「Please Select Gradle JVM to Import Project」（Java のバージョンが合わない）と出たら「Use JVM 21」を押す。出なくても、同期でエラーになる場合は「File」→「Settings」→「Build, Execution, Deployment」→「Build Tools」→「Gradle」の「Gradle JDK」で jbr-21 を選び、象のアイコン（Sync Project with Gradle Files）で同期し直す。
 
@@ -77,6 +83,7 @@ Git に入っていないもの（`node_modules/`、`android/app/src/main/assets
 
 | 手順 | 違うパソコン | 違うスマホ（同じパソコン） | 同じパソコン・同じスマホで続きの作業 |
 |---|---|---|---|
+| Node.js（LTS）のインストール | 必要 | 不要 | 不要 |
 | Android Studio・SDK（API 36）のインストール | 必要 | 不要 | 不要 |
 | `npm install` | 必要 | 不要 | `mobile/package.json` が変わったときだけ |
 | `npx cap sync android` | 必要 | 不要 | `public/` を変えたときは毎回 |
