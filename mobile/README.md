@@ -22,7 +22,9 @@ mobile/
                 ├── AlarmStore.java      … 予定・今日の記録・「あとで」を端末に保存
                 ├── AlarmScheduler.java  … 次に鳴らす時刻を AlarmManager.setAlarmClock で予約
                 ├── AlarmReceiver.java   … 予約時刻になった／通知の「あとで」
-                ├── AlarmRinger.java     … 通知（音を繰り返す・全画面インテント）を出す・止める
+                ├── AlarmRinger.java     … 通知（全画面インテント）を出す・止める
+                ├── AlarmSoundService.java … 鳴っているあいだだけ動くサービス（音が止められないように）
+                ├── AlarmSound.java      … アラームの音と振動を、止めるまで繰り返す
                 ├── AlarmActivity.java   … 画面いっぱいのアラーム画面
                 └── BootReceiver.java    … 再起動・時刻変更のあとに予約し直す
 ```
@@ -62,6 +64,9 @@ cd mobile
 npx cap sync android
 ```
 （Web 版は develop へのマージで Render に出るが、**アプリの画面は APK を作り直して入れ直すまで変わらない**。API（サーバー）の変更は、すぐにアプリにも反映される。）
+
+### Java を変えたとき
+Java（`android/app/src/main/java/` の中）・`AndroidManifest.xml`・`res/` だけを変えたときは、`npx cap sync android` は要らず、▶ を押すだけでよい（Render へのデプロイでは反映されない）。
 
 ### スマホが Android Studio に出ないとき
 「USB デバッグを許可しますか？」が出ない・端末を選べないときは、パソコンがスマホを認識できていない。次の順に確かめる。
