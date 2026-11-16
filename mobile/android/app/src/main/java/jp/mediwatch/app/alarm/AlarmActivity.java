@@ -34,6 +34,7 @@ import java.util.List;
  * ロック中でも表示し（showWhenLocked）、画面が消えていれば点ける（turnScreenOn）。
  *
  * - 「カメラを起動する」… ロックを解除して、アプリのホームで撮影を始める
+ *                         （記録しないままになった予定は、5 分後にもう一度鳴らす）
  * - 「あとで（5分後）」 … 音を止め、5 分後にもう一度鳴らす
  * 戻るボタンでは閉じない（どちらかのボタンを押してもらうため）。
  *
@@ -185,7 +186,8 @@ public class AlarmActivity extends AppCompatActivity {
     }
 
     private void openApp(Intent take) {
-        AlarmRinger.dismiss(this); // 音を止める
+        // 音を止める。鳴っていた予定は、記録しないままになったときに備えて 5 分後に鳴らし直す予約にする
+        AlarmRinger.holdForCamera(this);
         startActivity(take);
         finish();
     }

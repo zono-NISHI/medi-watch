@@ -32,7 +32,8 @@ public class MainActivity extends BridgeActivity {
         String scheduleId = intent != null ? intent.getStringExtra(AlarmRinger.EXTRA_TAKE) : null;
         if (scheduleId == null || getBridge() == null) return;
         intent.removeExtra(AlarmRinger.EXTRA_TAKE); // 画面を回転したときなどに、もう一度開かないようにする
-        AlarmRinger.dismiss(this); // 通知の「カメラを起動する」から来たときも音を止める
+        // 通知の「カメラを起動する」から来たときも音を止める（鳴っていた予定は、5 分後に鳴らし直す予約として残す）
+        AlarmRinger.holdForCamera(this);
 
         String url = getBridge().getLocalUrl() + "/home.html?take=" + Uri.encode(scheduleId);
         getBridge().getWebView().post(() -> getBridge().getWebView().loadUrl(url));

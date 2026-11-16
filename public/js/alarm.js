@@ -13,6 +13,10 @@
 //    別のアプリを使っていても、端末が時刻どおりに全画面で知らせて音を鳴らす
 //  - 音と読み上げは端末のアラームが鳴らすので、この画面のアラームは音を出さない
 //    （端末が読み上げる文は、sync で渡す speech から作る）
+//  - 「あとで」と「記録待ち」は端末のアラームが持ち、この画面はそれに合わせる
+//    ・端末のアラームで「あとで」にしたあいだは、この画面のアラームも出さない（NativeAlarm.isSnoozed）
+//    ・「カメラを起動する」を押したあと・撮影画面を開いたあとは、知らせていた予定を「記録待ち」にし、
+//      記録しないままになった予定を、5分後に端末のアラームが音つきで鳴らし直す
 // ============================================================
 
 // ------------------------------------------------------------
@@ -95,18 +99,27 @@ const NativeAlarm = (() => {
     }
   }
 
-  // 画面から「あとで」にする（5分後に、端末のアラームを音つきでもう一度鳴らす）
+  // 画面から、5分後に端末のアラームを音つきでもう一度鳴らす予約を入れる
   // items: MedAlarm が知らせている予定 [{ schedule, at }]
-  async function snooze(items) {
+  // hold: false … 「あとで」にする（そのあいだは画面のアラームも出さない）
+  //       true  … 記録待ちにする（撮影画面を開いたとき。記録しないままアプリを離れても、5分後に鳴る）
+  async function snooze(items, hold = false) {
     if (!plugin) return;
     try {
       lastStatus = await plugin.snooze({
         items: items.map(({ schedule, at }) => ({ id: schedule.id, origin: at.getTime() })),
+        hold,
       });
     } catch (err) {
       // 古い版のアプリには snooze が無い。その場合は画面のアラームだけが 5 分後に出る
       console.warn('[alarm] 端末のアラームを「あとで」にできませんでした:', err);
     }
+  }
+
+  // 端末のアラーム（全画面・通知）で「あとで」にした予定か。そのあいだは画面のアラームも出さない
+  // （端末で「あとで」を押したことは、画面側の localStorage には残らないため、端末に聞く）
+  function isSnoozed(scheduleId) {
+    return !!plugin && Number(lastStatus?.snoozed?.[scheduleId] || 0) > Date.now();
   }
 
   // 端末のアラームが音を鳴らせる状態か（このときは画面のアラームは音を出さない）
@@ -210,7 +223,7 @@ const NativeAlarm = (() => {
     })[c]);
   }
 
-  return { available, sync, snooze, ringsNatively, status, missing, fix, clear, renderSetupNotice, renderChecks };
+  return { available, sync, snooze, isSnoozed, ringsNatively, status, missing, fix, clear, renderSetupNotice, renderChecks };
 })();
 
 const MedAlarm = (() => {
@@ -258,6 +271,7 @@ const MedAlarm = (() => {
 
   async function tick() {
     if (document.hidden) return;
+    let synced = false;
     if (Date.now() - fetchedAt >= FETCH_INTERVAL_MS) {
       try {
         const [{ schedules: s }, { logs: l }] = await Promise.all([
@@ -269,10 +283,14 @@ const MedAlarm = (() => {
         fetchedAt = Date.now();
         // ネイティブ版：アプリを閉じていても鳴らせるよう、端末のアラームを予約し直す
         await NativeAlarm.sync(schedules, logs, localDateStr(new Date()));
+        synced = true;
       } catch (err) {
         console.warn('[alarm] 予定の取得に失敗しました:', err);
       }
     }
+    // ネイティブ版：端末のアラームで「あとで」を押したかどうかを、判定のたびに確かめる
+    // （sync したときは、その戻り値に含まれている。Web 版では何もしない）
+    if (!synced) await NativeAlarm.status();
     evaluate();
   }
 
@@ -281,7 +299,8 @@ const MedAlarm = (() => {
       hide();
       return;
     }
-    const due = dueItems();
+    // 端末のアラームで「あとで」にした予定は、そのあいだ画面でも知らせない
+    const due = dueItems().filter(({ schedule }) => !NativeAlarm.isSnoozed(schedule.id));
     if (due.length > 0) show(due);
     else hide();
   }
@@ -375,6 +394,9 @@ const MedAlarm = (() => {
     const item = items[0];
     if (!item) return;
     holdUntil = Date.now() + 15 * 1000;
+    // ネイティブ版：端末のアラームの音を止め、知らせていた予定を記録待ちにする
+    //（記録しないままアプリを離れても、5分後に端末のアラームが鳴る）
+    NativeAlarm.snooze(items, true);
     hide();
     if (options.onStartCamera) {
       options.onStartCamera(item);
@@ -407,7 +429,7 @@ const MedAlarm = (() => {
   }
 
   // 「あとで」にする。ネイティブ版では、端末のアラームも 5 分後に鳴らし直す
-  // （「カメラを起動する」で端末のアラームは止まっており、何もしないと今日はもう鳴らないため）
+  // （端末のアラームにも「あとで」と伝え、そのあいだは端末側の全画面・通知も出ないようにする）
   function snoozeItems(targets) {
     try {
       localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_MIN * 60 * 1000));
@@ -424,6 +446,14 @@ const MedAlarm = (() => {
     if (!due.some(({ schedule }) => schedule.id === scheduleId)) return false;
     snoozeItems(due);
     return true;
+  }
+
+  // 撮影画面を開いたときに呼ぶ。いま知らせる対象の予定を、端末のアラームの「記録待ち」にする
+  // （ネイティブ版だけ。5分を数え直すので、撮影の最中に端末のアラームが鳴り出しにくくなる。
+  //   記録が済んだ予定は sync で外れ、記録しないままの予定だけが5分後に鳴る）
+  function holdDue() {
+    const due = dueItems();
+    if (due.length > 0) NativeAlarm.snooze(due, true);
   }
 
   // 「あとで」は画面を移っても続くよう localStorage に保存する
@@ -551,5 +581,5 @@ const MedAlarm = (() => {
     })[c]);
   }
 
-  return { start, refresh, snoozeIfDue, SNOOZE_MIN };
+  return { start, refresh, snoozeIfDue, holdDue, SNOOZE_MIN };
 })();
