@@ -47,12 +47,14 @@ final class AlarmStore {
         final int minute;
         final boolean[] days = new boolean[7]; // 0 = 日曜（JavaScript の getDay() と同じ）
         final String label; // 例: 「ロキソニン 1錠」
+        final String speech; // 読み上げ用。例: 「ロキソニンを1錠」（用量が無ければ「ロキソニンを」）
 
-        Schedule(String id, int hour, int minute, String label) {
+        Schedule(String id, int hour, int minute, String label, String speech) {
             this.id = id;
             this.hour = hour;
             this.minute = minute;
             this.label = label;
+            this.speech = speech;
         }
 
         String timeText() {
@@ -104,7 +106,11 @@ final class AlarmStore {
             String[] hm = o.optString("time", "").split(":");
             if (id.isEmpty() || hm.length < 2) continue;
             try {
-                Schedule s = new Schedule(id, Integer.parseInt(hm[0]), Integer.parseInt(hm[1]), o.optString("label", "お薬"));
+                String label = o.optString("label", "お薬");
+                // 読み上げ用の文が無い（以前の版の画面が保存した予定）ときは、表示用の名前から作る
+                String speech = o.optString("speech", "");
+                if (speech.isEmpty()) speech = label + "を";
+                Schedule s = new Schedule(id, Integer.parseInt(hm[0]), Integer.parseInt(hm[1]), label, speech);
                 JSONArray days = o.optJSONArray("days");
                 if (days == null || days.length() == 0) {
                     for (int d = 0; d < 7; d++) s.days[d] = true;

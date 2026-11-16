@@ -90,4 +90,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- アラームの読み上げ（「お薬の時間です。○○を3錠服用してください。」）に、端末の読み上げ機能を使う。
+         Android 11 以降は、ここに書いておかないと読み上げ機能が見つからず、音だけになる -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 </manifest>

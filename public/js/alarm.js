@@ -11,8 +11,25 @@
 //  ネイティブ版（mobile/ の Android アプリ）では:
 //  - 取得した予定を NativeAlarm で端末に渡し、アプリを閉じていても・ロック中でも・
 //    別のアプリを使っていても、端末が時刻どおりに全画面で知らせて音を鳴らす
-//  - 音は端末のアラームが鳴らすので、この画面のアラームは音を出さない
+//  - 音と読み上げは端末のアラームが鳴らすので、この画面のアラームは音を出さない
+//    （端末が読み上げる文は、sync で渡す speech から作る）
 // ============================================================
+
+// ------------------------------------------------------------
+//  読み上げる文（アラーム・撮影画面・ネイティブ版のアラームで同じ言い方にする）
+// ------------------------------------------------------------
+// お薬 1 つ分の「○○を3錠」（用量が登録されていなければ「○○を」）
+function medSpeechPhrase(med) {
+  const name = med?.name || 'お薬';
+  const amount = `${med?.dosage || ''}${med?.unit || ''}`.trim();
+  return `${name}を${amount}`;
+}
+
+// 「お薬の時間です。○○を3錠、□□を1包服用してください。」
+function medAnnouncement(meds) {
+  const phrases = (meds || []).map(medSpeechPhrase);
+  return `お薬の時間です。${phrases.length > 0 ? phrases.join('、') : 'お薬を'}服用してください。`;
+}
 
 // ------------------------------------------------------------
 //  ネイティブ版のアラーム（mobile/android の MediAlarmPlugin とのやり取り）
@@ -65,6 +82,7 @@ const NativeAlarm = (() => {
           time: String(s.scheduled_time).slice(0, 5),
           days: s.days_of_week || [0, 1, 2, 3, 4, 5, 6],
           label: medLabel(s),
+          speech: medSpeechPhrase(s.medications), // 端末のアラームが読み上げる「○○を3錠」
         })),
         doneIds: logs.filter((l) => l.schedule_id && l.status !== 'pending').map((l) => l.schedule_id),
       });
@@ -476,8 +494,8 @@ const MedAlarm = (() => {
 
   function speak() {
     try {
-      const names = items.map(({ schedule }) => schedule.medications?.name || 'お薬').join('、');
-      const utter = new SpeechSynthesisUtterance(`お薬の時間です。${names}を服用してください。`);
+      // 例: 「お薬の時間です。ロキソニンを3錠、ガスターを1包服用してください。」
+      const utter = new SpeechSynthesisUtterance(medAnnouncement(items.map(({ schedule }) => schedule.medications)));
       utter.lang = 'ja-JP';
       utter.rate = 0.95;
       speechSynthesis.speak(utter);
