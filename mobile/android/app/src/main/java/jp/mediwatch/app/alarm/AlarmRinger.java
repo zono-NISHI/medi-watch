@@ -22,6 +22,7 @@ import jp.mediwatch.app.MainActivity;
  * アラームを鳴らす・止める・「あとで」にする。
  *
  * - 音と振動は、アプリ自身で鳴らす（AlarmSoundService → AlarmSound）。止めるまで繰り返し鳴る。
+ *   音のあいまに「お薬の時間です。○○を3錠服用してください。」と読み上げる（文は announcement で作る）。
  *   音の種類は「アラーム」（USAGE_ALARM）なので、着信音量ではなくアラーム音量で鳴る。
  *   （通知の音で鳴らすと、音量を一度 0 にしてから上げても鳴らなくなるため。AlarmSound を参照）
  * - 通知そのものは音を出さない。通知を横に払って消したときは「あとで」と同じ扱いにする。
@@ -304,6 +305,18 @@ public final class AlarmRinger {
             sb.append(s.label);
         }
         return sb.length() > 0 ? sb.toString() : "お薬";
+    }
+
+    /** 読み上げる文（例: 「お薬の時間です。ロキソニンを3錠、ガスターを1包服用してください。」） */
+    static String announcement(AlarmStore store, List<AlarmStore.Item> items) {
+        StringBuilder sb = new StringBuilder();
+        for (AlarmStore.Item item : items) {
+            AlarmStore.Schedule s = store.findSchedule(item.id);
+            if (s == null) continue;
+            if (sb.length() > 0) sb.append("、");
+            sb.append(s.speech);
+        }
+        return "お薬の時間です。" + (sb.length() > 0 ? sb.toString() : "お薬を") + "服用してください。";
     }
 
     static Notification buildNotification(Context context, AlarmStore store, List<AlarmStore.Item> items) {

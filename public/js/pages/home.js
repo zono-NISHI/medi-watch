@@ -286,11 +286,11 @@ function escapeHtml(str) {
 }
 
 // ---- 音声案内（撮影画面を開いたときに読み上げる。服薬時刻になったときのアラームは js/alarm.js） ----
-function speakReminder(medName) {
+// med: { name, dosage, unit }。アラームと同じ言い方で、用量も読み上げる（例: 「お薬の時間です。ロキソニンを3錠服用してください。」）
+function speakReminder(med) {
+  const medName = med?.name || 'お薬';
   try {
-    const utter = new SpeechSynthesisUtterance(
-      `お薬の時間です。${medName}を服用してください。`
-    );
+    const utter = new SpeechSynthesisUtterance(medAnnouncement([med]));
     utter.lang = 'ja-JP';
     utter.rate = 0.95;
     speechSynthesis.speak(utter);
@@ -333,7 +333,9 @@ async function openTakeModal({ logId, scheduleId, medName }) {
   resetCameraUi();
 
   modal.showModal();
-  speakReminder(currentMedName);
+  // 用量・単位は、表示中の予定から探す（見つからなければ名前だけを読み上げる）
+  const med = lastMerged.find(({ schedule }) => schedule.id === scheduleId)?.schedule.medications;
+  speakReminder({ ...med, name: currentMedName });
 }
 
 async function ensureLogExists(scheduleId) {

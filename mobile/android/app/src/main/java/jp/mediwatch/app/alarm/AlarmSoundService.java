@@ -53,7 +53,8 @@ public class AlarmSoundService extends Service {
         } catch (RuntimeException e) {
             // 裏からサービスを始められない場合も、音だけは鳴らす
             Log.w(TAG, "アラームのサービスを開始できませんでした（音だけ鳴らします）", e);
-            AlarmSound.start(context);
+            AlarmStore store = new AlarmStore(context);
+            AlarmSound.start(context, AlarmRinger.announcement(store, store.ringing()));
         }
     }
 
@@ -96,7 +97,8 @@ public class AlarmSoundService extends Service {
             return START_NOT_STICKY;
         }
 
-        AlarmSound.start(this);
+        // 音と振動に加えて、「お薬の時間です。○○を3錠服用してください。」と読み上げる
+        AlarmSound.start(this, AlarmRinger.announcement(store, items));
         // 鳴らしっぱなしにならないよう、アラームを出す時間（60 分）が過ぎたら止める。
         // 通知の付け替えだけのときは、すでに数え始めていれば延ばさない
         boolean relink = intent != null && intent.getBooleanExtra(EXTRA_RELINK, false);
