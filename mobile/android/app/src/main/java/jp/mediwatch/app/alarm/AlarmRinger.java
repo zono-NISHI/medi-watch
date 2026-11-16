@@ -6,9 +6,6 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.media.AudioAttributes;
-import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
 import androidx.core.app.NotificationCompat;
@@ -19,8 +16,10 @@ import jp.mediwatch.app.MainActivity;
 /**
  * アラームを鳴らす・止める・「あとで」にする。
  *
- * - 音は通知で鳴らす。FLAG_INSISTENT を付けると、通知を消すまで音が繰り返し鳴り続ける。
+ * - 音と振動は、アプリ自身で鳴らす（AlarmSoundService → AlarmSound）。止めるまで繰り返し鳴る。
  *   音の種類は「アラーム」（USAGE_ALARM）なので、着信音量ではなくアラーム音量で鳴る。
+ *   （通知の音で鳴らすと、音量を一度 0 にしてから上げても鳴らなくなるため。AlarmSound を参照）
+ * - 通知そのものは音を出さない。通知を横に払って消したときは「あとで」と同じ扱いにする。
  * - 画面いっぱいの表示（AlarmActivity）は、次の 2 つの方法で出す。
  *   1. 通知の「全画面インテント」… 画面が消えている・ロック中のときに全画面で出る
  *   2. 「他のアプリの上に重ねて表示」の許可があれば、直接 AlarmActivity を開く
@@ -30,7 +29,9 @@ import jp.mediwatch.app.MainActivity;
 public final class AlarmRinger {
 
     private static final String TAG = "MediAlarm";
-    static final String CHANNEL_ID = "medication_alarm_v1";
+    static final String CHANNEL_ID = "medication_alarm_v2";
+    /** 以前の、通知の音で鳴らしていたチャンネル（チャンネルの音の設定は後から変えられないため、作り直した） */
+    private static final String OLD_CHANNEL_ID = "medication_alarm_v1";
     static final int NOTIFICATION_ID = 1001;
     public static final String EXTRA_TAKE = "jp.mediwatch.app.TAKE_SCHEDULE_ID";
     static final String ACTION_SNOOZE = "jp.mediwatch.app.alarm.SNOOZE";
@@ -55,6 +56,7 @@ public final class AlarmRinger {
         ensureChannel(context);
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.notify(NOTIFICATION_ID, buildNotification(context, store, items));
+        AlarmSoundService.start(context); // 音と振動（止めるまで繰り返す）
 
         // 操作中でも全画面で出す（「他のアプリの上に重ねて表示」が許可されていれば開ける）
         try {
@@ -68,6 +70,7 @@ public final class AlarmRinger {
     /** 止める（カメラを起動したとき・記録が済んだとき） */
     public static void dismiss(Context context) {
         new AlarmStore(context).saveRinging(new ArrayList<>());
+        AlarmSoundService.stop(context);
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.cancel(NOTIFICATION_ID);
         AlarmActivity.closeIfOpen();
@@ -122,19 +125,13 @@ public final class AlarmRinger {
     static void ensureChannel(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm.getNotificationChannel(OLD_CHANNEL_ID) != null) nm.deleteNotificationChannel(OLD_CHANNEL_ID);
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return;
 
         NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "お薬の時間のアラーム", NotificationManager.IMPORTANCE_HIGH);
-        channel.setDescription("服薬の時刻に、音を繰り返し鳴らしてお知らせします。");
-        channel.setSound(
-            alarmSound(),
-            new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-        );
-        channel.enableVibration(true);
-        channel.setVibrationPattern(new long[] { 0, 600, 400, 600, 400, 600 });
+        channel.setDescription("服薬の時刻に、画面いっぱいにお知らせします（音と振動はアプリが鳴らします）。");
+        channel.setSound(null, null); // 音は AlarmSound が鳴らす（通知の音と二重にならないように）
+        channel.enableVibration(false);
         channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         nm.createNotificationChannel(channel);
     }
@@ -146,11 +143,6 @@ public final class AlarmRinger {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         NotificationChannel channel = nm.getNotificationChannel(CHANNEL_ID);
         return channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
-    }
-
-    private static Uri alarmSound() {
-        Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-        return uri != null ? uri : RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
     }
 
     /** 「お薬の時間です」の本文（例: 「08:00　ロキソニン 1錠、ガスター 1錠」） */
@@ -165,7 +157,7 @@ public final class AlarmRinger {
         return sb.length() > 0 ? sb.toString() : "お薬";
     }
 
-    private static Notification buildNotification(Context context, AlarmStore store, List<AlarmStore.Item> items) {
+    static Notification buildNotification(Context context, AlarmStore store, List<AlarmStore.Item> items) {
         int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
         PendingIntent fullScreen = PendingIntent.getActivity(
             context,
@@ -184,24 +176,22 @@ public final class AlarmRinger {
         AlarmStore.Schedule first = store.findSchedule(items.get(0).id);
         String title = (first != null ? first.timeText() + "　" : "") + "お薬の時間です";
 
-        Notification n = new NotificationCompat.Builder(context, CHANNEL_ID)
+        return new NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(title)
             .setContentText(describe(store, items) + "を飲みましょう")
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setSound(alarmSound(), android.media.AudioManager.STREAM_ALARM)
-            .setVibrate(new long[] { 0, 600, 400, 600, 400, 600 })
+            .setSilent(true) // 音と振動は AlarmSound が鳴らす
             .setOngoing(true)
             .setAutoCancel(false)
             .setTimeoutAfter(AlarmStore.ALARM_WINDOW_MS)
             .setContentIntent(fullScreen)
             .setFullScreenIntent(fullScreen, true)
+            .setDeleteIntent(snooze) // 通知を横に払って消したときは「あとで」と同じにする（音を止め、5 分後にもう一度）
             .addAction(0, "カメラを起動する", camera)
             .addAction(0, "あとで（5分後）", snooze)
             .build();
-        n.flags |= Notification.FLAG_INSISTENT; // 消すまで音を繰り返す
-        return n;
     }
 }

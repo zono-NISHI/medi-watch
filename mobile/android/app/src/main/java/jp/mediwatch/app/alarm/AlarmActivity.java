@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -57,6 +58,9 @@ public class AlarmActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         current = new WeakReference<>(this);
         showOverLockScreen();
+        // この画面で音量ボタンを押したら、着信音量ではなく、アラームの音量を変える
+        // （アラームの音は「アラーム」の音量で鳴っているため）
+        setVolumeControlStream(AudioManager.STREAM_ALARM);
         setContentView(buildLayout());
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
