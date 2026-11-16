@@ -364,6 +364,9 @@ async function openTakeModal({ logId, scheduleId, medName }) {
   resetCameraUi();
 
   modal.showModal();
+  // ネイティブ版：お薬の時間になっている予定を、端末のアラームの「記録待ち」にする
+  // （鳴っていれば音が止まる。記録しないままアプリを離れても、5分後に端末のアラームが鳴る）
+  MedAlarm.holdDue();
   // 用量・単位は、表示中の予定から探す（見つからなければ名前だけを読み上げる）
   const med = lastMerged.find(({ schedule }) => schedule.id === scheduleId)?.schedule.medications;
   speakReminder({ ...med, name: currentMedName });

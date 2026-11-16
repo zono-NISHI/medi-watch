@@ -159,9 +159,37 @@ final class AlarmStore {
 
     // ---- 「あとで」にした予定 ----
 
-    /** id → { at: もう一度鳴らす時刻, origin: 本来の服薬時刻 } */
+    /**
+     * 鳴らし直す予約の「記録待ち」の印（true のとき、利用者が「あとで」を選んだのではなく、
+     * 「カメラを起動する」を押したあと、記録しないままになったときに備えた予約）
+     */
+    static final String SNOOZE_HOLD = "hold";
+
+    /** id → { at: もう一度鳴らす時刻, origin: 本来の服薬時刻, hold: 記録待ちか } */
     JSONObject snoozes() {
         return readObject(KEY_SNOOZES);
+    }
+
+    /**
+     * 利用者が「あとで」を選んだ予定（id → もう一度鳴らす時刻）。記録待ちの予約は含めない。
+     * 画面のアラームが、端末で「あとで」にしたあいだは出さないようにするために渡す
+     */
+    JSONObject userSnoozes() {
+        JSONObject result = new JSONObject();
+        JSONObject snoozes = snoozes();
+        long now = System.currentTimeMillis();
+        Iterator<String> keys = snoozes.keys();
+        while (keys.hasNext()) {
+            String id = keys.next();
+            JSONObject sn = snoozes.optJSONObject(id);
+            if (sn == null || sn.optBoolean(SNOOZE_HOLD, false) || sn.optLong("at") <= now) continue;
+            try {
+                result.put(id, sn.optLong("at"));
+            } catch (JSONException ignored) {
+                // put に失敗することはない
+            }
+        }
+        return result;
     }
 
     void saveSnoozes(JSONObject snoozes) {

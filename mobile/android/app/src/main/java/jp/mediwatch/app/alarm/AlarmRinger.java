@@ -171,7 +171,7 @@ public final class AlarmRinger {
         return screenOn && unlocked && overlay;
     }
 
-    /** 止める（カメラを起動したとき・記録が済んだとき） */
+    /** 止める（記録が済んだとき・ログアウトしたときなど。鳴らし直す予約は、呼ぶ側が必要に応じて入れる） */
     public static void dismiss(Context context) {
         handler.removeCallbacksAndMessages(null);
         new AlarmStore(context).saveRinging(new ArrayList<>());
@@ -185,24 +185,58 @@ public final class AlarmRinger {
         AlarmStore store = new AlarmStore(context);
         long at = System.currentTimeMillis() + AlarmStore.SNOOZE_MS;
         org.json.JSONObject snoozes = store.snoozes();
-        for (AlarmStore.Item item : store.ringing()) {
-            try {
-                snoozes.put(item.id, new org.json.JSONObject().put("at", at).put("origin", item.origin));
-            } catch (org.json.JSONException ignored) {
-                // put に失敗することはない
-            }
-        }
+        for (AlarmStore.Item item : store.ringing()) putSnooze(snoozes, item, at, false);
         store.saveSnoozes(snoozes);
         dismiss(context);
         AlarmScheduler.reschedule(context);
     }
 
     /**
-     * アプリの画面から「あとで」にする（撮影画面を記録せずに閉じたときなど）。
-     * 「カメラを起動する」を押した時点でアラームは止めてあり、鳴っている予定は残っていないので、
-     * どの予定を鳴らし直すかは画面側から受け取る。まだ鳴っている予定があれば、それも一緒に「あとで」にする。
+     * 「カメラを起動する」を押したとき（全画面・通知のどちらからでも）。
+     * 音を止めるが、鳴っていた予定は忘れずに「5 分後に鳴らし直す」予約として残す（記録待ち）。
+     *
+     * 同じ時刻のお薬が 2 つあるとき、カメラで記録するのは 1 つずつなので、ここで全部を「済んだ」扱いにすると、
+     * 2 つ目は記録していないのに今日はもう鳴らなくなる。撮影画面を開けなかったときも同じ。
+     * 記録が済んだ予定は、画面からの sync で予約から外れる（AlarmStore.forgetRemovedSchedules）ので、
+     * 5 分後に鳴るのは、記録しないままになっている予定だけ。
      */
-    static void snoozeFromApp(Context context, List<AlarmStore.Item> items) {
+    public static void holdForCamera(Context context) {
+        AlarmStore store = new AlarmStore(context);
+        List<AlarmStore.Item> ringing = store.ringing();
+        if (!ringing.isEmpty()) {
+            long at = System.currentTimeMillis() + AlarmStore.SNOOZE_MS;
+            org.json.JSONObject snoozes = store.snoozes();
+            for (AlarmStore.Item item : ringing) putSnooze(snoozes, item, at, true);
+            store.saveSnoozes(snoozes);
+        }
+        dismiss(context);
+        AlarmScheduler.reschedule(context);
+    }
+
+    /**
+     * 鳴らし直す予約を 1 件入れる。
+     * hold … true: 記録待ち（「カメラを起動する」のあと。画面のアラームは出してよい）
+     *        false: 利用者が「あとで」を選んだ（そのあいだは画面のアラームも出さない）
+     */
+    private static void putSnooze(org.json.JSONObject snoozes, AlarmStore.Item item, long at, boolean hold) {
+        try {
+            snoozes.put(
+                item.id,
+                new org.json.JSONObject().put("at", at).put("origin", item.origin).put(AlarmStore.SNOOZE_HOLD, hold)
+            );
+        } catch (org.json.JSONException ignored) {
+            // put に失敗することはない（値は数値と真偽値だけ）
+        }
+    }
+
+    /**
+     * アプリの画面から、5 分後に鳴らし直す予約を入れる。
+     * - hold = false … 「あとで」にする（画面の「あとで」・撮影画面を記録せずに閉じたとき）
+     * - hold = true  … 記録待ちにする（撮影画面を開いたとき。撮影の最中に鳴り出さないよう、5 分を数え直す）
+     * 「カメラを起動する」を押した時点でアラームは止めてあり、鳴っている予定は残っていないので、
+     * どの予定を鳴らし直すかは画面側から受け取る。まだ鳴っている予定があれば、それも一緒に予約する。
+     */
+    static void snoozeFromApp(Context context, List<AlarmStore.Item> items, boolean hold) {
         AlarmStore store = new AlarmStore(context);
         long now = System.currentTimeMillis();
         long at = now + AlarmStore.SNOOZE_MS;
@@ -217,11 +251,7 @@ public final class AlarmRinger {
             // 予定に無い・記録済み・服薬時刻から時間が経ちすぎたものは鳴らし直さない
             if (store.findSchedule(item.id) == null || store.isDoneToday(item.id)) continue;
             if (item.origin <= 0 || now - item.origin > AlarmStore.ALARM_WINDOW_MS) continue;
-            try {
-                snoozes.put(item.id, new org.json.JSONObject().put("at", at).put("origin", item.origin));
-            } catch (org.json.JSONException ignored) {
-                // put に失敗することはない
-            }
+            putSnooze(snoozes, item, at, hold);
         }
         store.saveSnoozes(snoozes);
         dismiss(context);

@@ -27,7 +27,9 @@ import org.json.JSONObject;
  *
  * JavaScript からは window.Capacitor.nativePromise('MediAlarm', メソッド名, 引数) で呼び出す。
  * - sync(...)                       … 予定と「今日もう記録した予定」を渡し、アラームを予約し直す
- * - snooze({ items })               … 画面から「あとで」にする（5 分後にもう一度鳴らす。items は { id, origin: 本来の服薬時刻 }）
+ * - snooze({ items, hold })         … 画面から、5 分後にもう一度鳴らす予約を入れる（items は { id, origin: 本来の服薬時刻 }）。
+ *                                     hold = false は「あとで」、true は記録待ち（撮影画面を開いたとき）
+ * - getStatus() などの戻り値の snoozed … 端末のアラームで「あとで」にした予定（id → もう一度鳴らす時刻）
  * - clear()                         … ログアウト時に、予約と保存した予定をすべて消す
  * - getStatus()                     … アラームに必要な許可がそろっているか
  * - requestNotificationPermission() … 通知の許可を求める（Android 13 以降）
@@ -65,7 +67,7 @@ public class MediAlarmPlugin extends Plugin {
             String id = o.optString("id", "");
             if (!id.isEmpty()) items.add(new AlarmStore.Item(id, o.optLong("origin")));
         }
-        AlarmRinger.snoozeFromApp(getContext(), items);
+        AlarmRinger.snoozeFromApp(getContext(), items, Boolean.TRUE.equals(call.getBoolean("hold", false)));
         call.resolve(status());
     }
 
@@ -149,7 +151,10 @@ public class MediAlarmPlugin extends Plugin {
         }
         s.put("exactAlarm", exact);
 
-        s.put("nextAlarmAt", new AlarmStore(context).nextAt()); // 予約が無ければ 0
+        AlarmStore store = new AlarmStore(context);
+        s.put("nextAlarmAt", store.nextAt()); // 予約が無ければ 0
+        // 端末のアラームで「あとで」にした予定（id → もう一度鳴らす時刻）。そのあいだは画面のアラームも出さない
+        s.put("snoozed", store.userSnoozes());
         return s;
     }
 }
