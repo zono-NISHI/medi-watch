@@ -118,6 +118,7 @@ public final class AlarmRinger {
         List<AlarmStore.Item> items = store.ringing();
         if (items.isEmpty()) return;
         post(context, store, items, visible);
+        Log.i(TAG, visible ? "通知を、画面上部に出ない版に切り替えました" : "通知を、画面上部に出る版に切り替えました");
         // 音を鳴らしているサービスの通知を、新しい番号の通知に付け替える（古い通知はそこで消える）
         AlarmSoundService.relink(context);
     }
@@ -300,7 +301,9 @@ public final class AlarmRinger {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(quiet ? NotificationCompat.PRIORITY_LOW : NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setSilent(true) // 音と振動は AlarmSound が鳴らす
+            // setSilent(true) は付けない。付けると通知が「鳴らさないグループ」の扱いになり、
+            // Android が画面上部への表示（ヘッズアップ）と全画面インテントを止めてしまう。
+            // 音と振動は、チャンネルの設定（音なし・振動なし）で止めてある（鳴らすのは AlarmSound）
             .setOngoing(true)
             .setAutoCancel(false)
             .setTimeoutAfter(AlarmStore.ALARM_WINDOW_MS)
