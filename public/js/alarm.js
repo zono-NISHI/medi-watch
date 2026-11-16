@@ -11,8 +11,10 @@
 //  ネイティブ版（mobile/ の Android アプリ）では:
 //  - 取得した予定を NativeAlarm で端末に渡し、アプリを閉じていても・ロック中でも・
 //    別のアプリを使っていても、端末が時刻どおりに全画面で知らせて音を鳴らす
-//  - 音と読み上げは端末のアラームが鳴らすので、この画面のアラームは音を出さない
+//  - 音と読み上げは端末のアラームが鳴らすので、この画面のアラームはチャイムを鳴らさない
 //    （端末が読み上げる文は、sync で渡す speech から作る）
+//  - 端末のアラームが鳴っていないあいだにこの画面を出すとき（1つ目を記録したあとの、残りのお薬の案内など）は、
+//    表示中のお薬だけを、端末の読み上げ機能で読み上げる（NativeAlarm.announce）
 //  - 「あとで」と「記録待ち」は端末のアラームが持ち、この画面はそれに合わせる
 //    ・端末のアラームで「あとで」にしたあいだは、この画面のアラームも出さない（NativeAlarm.isSnoozed）
 //    ・「カメラを起動する」を押したあと・撮影画面を開いたあとは、知らせていた予定を「記録待ち」にし、
@@ -116,13 +118,26 @@ const NativeAlarm = (() => {
     }
   }
 
-  // 端末のアラーム（全画面・通知）で「あとで」にした予定か。そのあいだは画面のアラームも出さない
+  // 端末のアラーム（全画面・通知・画面上部の帯）の「あとで」ボタンで先延ばしにした予定か。そのあいだは画面のアラームも出さない
+  // （通知を横に払って消しただけのときは含まない。その場合は、アプリを開けば画面のアラームで知らせる）
   // （端末で「あとで」を押したことは、画面側の localStorage には残らないため、端末に聞く）
   function isSnoozed(scheduleId) {
     return !!plugin && Number(lastStatus?.snoozed?.[scheduleId] || 0) > Date.now();
   }
 
-  // 端末のアラームが音を鳴らせる状態か（このときは画面のアラームは音を出さない）
+  // 端末の読み上げ機能で、文を1回読み上げる（アプリの画面は、自分では読み上げられないため）
+  // 端末のアラームが鳴っているあいだは、端末側が読み上げない（アラームの音・読み上げと重ならないように）
+  function announce(text) {
+    if (!plugin) return;
+    plugin.announce({ text }).catch((err) => console.warn('[alarm] 読み上げを頼めませんでした:', err));
+  }
+
+  function stopAnnounce() {
+    if (!plugin) return;
+    plugin.stopAnnounce().catch(() => { /* 古い版のアプリには無い */ });
+  }
+
+  // 端末のアラームが音を鳴らせる状態か（このときは、画面のアラームはチャイムを鳴らさず、端末の読み上げだけを使う）
   function ringsNatively() {
     return !!plugin && !!lastStatus?.notifications;
   }
@@ -223,7 +238,10 @@ const NativeAlarm = (() => {
     })[c]);
   }
 
-  return { available, sync, snooze, isSnoozed, ringsNatively, status, missing, fix, clear, renderSetupNotice, renderChecks };
+  return {
+    available, sync, snooze, isSnoozed, announce, stopAnnounce, ringsNatively,
+    status, missing, fix, clear, renderSetupNotice, renderChecks,
+  };
 })();
 
 const MedAlarm = (() => {
@@ -246,6 +264,7 @@ const MedAlarm = (() => {
   let shownKey = ''; // いま画面に描いているお薬（予定の id をつないだもの）
   let audioCtx = null;
   let soundTimer = null;
+  let voiceOnly = false; // ネイティブ版で、端末の読み上げだけで知らせているか（startSound で決める）
   let lastSpokenAt = 0;
   let wakeLock = null;
 
@@ -383,11 +402,13 @@ const MedAlarm = (() => {
     if (key !== shownKey) {
       shownKey = key;
       render(due);
+      // 表示中にお薬が変わった（1つ記録して残りだけになった など）ときは、新しい内容ですぐ読み上げ直す
+      if (dialog.open) restartSound();
     }
 
     if (!dialog.open) {
       dialog.showModal();
-      if (!NativeAlarm.ringsNatively()) startSound(); // ネイティブ版は端末のアラームが鳴らす
+      startSound();
       requestWakeLock();
     }
   }
@@ -534,17 +555,46 @@ const MedAlarm = (() => {
     if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
   }
 
+  // 知らせ方は 2 通り
+  // - ブラウザ版（と、ネイティブ版で通知が許可されていないとき）… この画面がチャイム・読み上げ・振動で知らせる
+  // - ネイティブ版 … 音と振動は端末のアラームが鳴らすので、この画面はチャイムを鳴らさない。
+  //   端末のアラームが鳴っていないあいだ（1つ目を記録したあとの、残りのお薬の案内など）だけ、
+  //   端末の読み上げ機能で「お薬の時間です。○○を3錠服用してください。」と、表示中のお薬を読み上げる
   function startSound() {
     if (soundTimer) return;
     lastSpokenAt = 0;
+    voiceOnly = NativeAlarm.ringsNatively();
+    if (voiceOnly) {
+      announceNatively();
+      soundTimer = setInterval(announceNatively, SPEAK_INTERVAL_MS);
+      return;
+    }
     playOnce();
     soundTimer = setInterval(playOnce, SOUND_INTERVAL_MS);
   }
 
   function stopSound() {
+    const wasOn = !!soundTimer;
     clearInterval(soundTimer);
     soundTimer = null;
+    if (wasOn && voiceOnly) NativeAlarm.stopAnnounce();
     try { speechSynthesis?.cancel(); } catch { /* noop */ }
+  }
+
+  // 鳴らしている最中なら、いったん止めて最初からやり直す（読み上げる内容を、いまのお薬に合わせる）
+  function restartSound() {
+    if (!soundTimer) return;
+    stopSound();
+    startSound();
+  }
+
+  // いま表示しているお薬だけを読み上げる文（例: 「お薬の時間です。ロキソニンを3錠、ガスターを1包服用してください。」）
+  function announcementText() {
+    return medAnnouncement(items.map(({ schedule }) => schedule.medications));
+  }
+
+  function announceNatively() {
+    if (items.length > 0) NativeAlarm.announce(announcementText());
   }
 
   function playOnce() {
@@ -587,8 +637,7 @@ const MedAlarm = (() => {
 
   function speak() {
     try {
-      // 例: 「お薬の時間です。ロキソニンを3錠、ガスターを1包服用してください。」
-      const utter = new SpeechSynthesisUtterance(medAnnouncement(items.map(({ schedule }) => schedule.medications)));
+      const utter = new SpeechSynthesisUtterance(announcementText());
       utter.lang = 'ja-JP';
       utter.rate = 0.95;
       speechSynthesis.speak(utter);
@@ -620,7 +669,7 @@ const MedAlarm = (() => {
       fetchedAt = 0;
       tick().then(() => {
         if (dialog?.open) {
-          if (!NativeAlarm.ringsNatively()) startSound();
+          startSound();
           requestWakeLock();
         }
       });

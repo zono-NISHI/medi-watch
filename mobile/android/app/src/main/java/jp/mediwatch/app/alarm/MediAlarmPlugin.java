@@ -30,6 +30,8 @@ import org.json.JSONObject;
  * - snooze({ items, hold })         … 画面から、5 分後にもう一度鳴らす予約を入れる（items は { id, origin: 本来の服薬時刻 }）。
  *                                     hold = false は「あとで」、true は記録待ち（撮影画面を開いたとき）
  * - getStatus() などの戻り値の snoozed … 端末のアラームで「あとで」にした予定（id → もう一度鳴らす時刻）
+ * - announce({ text })              … 画面のアラームの文を 1 回読み上げる（端末のアラームが鳴っているあいだは読み上げない）
+ * - stopAnnounce()                  … その読み上げを止める
  * - clear()                         … ログアウト時に、予約と保存した予定をすべて消す
  * - getStatus()                     … アラームに必要な許可がそろっているか
  * - requestNotificationPermission() … 通知の許可を求める（Android 13 以降）
@@ -72,8 +74,21 @@ public class MediAlarmPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void announce(PluginCall call) {
+        AlarmAnnouncer.speak(getContext(), call.getString("text", ""));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void stopAnnounce(PluginCall call) {
+        AlarmAnnouncer.stop();
+        call.resolve();
+    }
+
+    @PluginMethod
     public void clear(PluginCall call) {
         Context context = getContext();
+        AlarmAnnouncer.stop();
         AlarmRinger.dismiss(context);
         new AlarmStore(context).clearAll();
         AlarmScheduler.reschedule(context); // 予定が空なので、予約が取り消される

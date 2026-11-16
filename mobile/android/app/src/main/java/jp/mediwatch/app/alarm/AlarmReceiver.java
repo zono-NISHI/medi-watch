@@ -5,7 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 
 /**
- * 予約した時刻になったとき（FIRE）と、通知の「あとで」を押したとき（SNOOZE）に呼ばれる。
+ * 予約した時刻になったとき（FIRE）、通知の「あとで」を押したとき（SNOOZE）、
+ * 通知を横に払って消したとき（DISMISSED）に呼ばれる。
  * アプリの外からは呼べない（AndroidManifest.xml で exported="false"）。
  */
 public class AlarmReceiver extends BroadcastReceiver {
@@ -17,6 +18,8 @@ public class AlarmReceiver extends BroadcastReceiver {
             AlarmScheduler.onAlarmFired(context);
         } else if (AlarmRinger.ACTION_SNOOZE.equals(action)) {
             AlarmRinger.snooze(context);
+        } else if (AlarmRinger.ACTION_DISMISSED.equals(action)) {
+            AlarmRinger.hold(context);
         }
     }
 }
