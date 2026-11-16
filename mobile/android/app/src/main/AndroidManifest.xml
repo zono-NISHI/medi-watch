@@ -35,6 +35,12 @@
             android:turnScreenOn="true"
             android:exported="false" />
 
+        <!-- アラームの音と振動を鳴らし続けるサービス（鳴っているあいだだけ動く。アプリの外からは呼べない） -->
+        <service
+            android:name=".alarm.AlarmSoundService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
         <!-- 予約した時刻になったとき・通知の「あとで」を押したとき（アプリの外からは呼べない） -->
         <receiver
             android:name=".alarm.AlarmReceiver"
@@ -80,4 +86,8 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- アラームの音を、アプリが裏にあっても・画面が消えていても鳴らし続ける -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 </manifest>
