@@ -547,3 +547,37 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
 }
 
 .alarm-note { margin: 0; color: var(--color-ink-soft); }
+
+/* お薬が複数あるとき：お薬ごとに、記録のしかたを選ぶボタンを並べる */
+.alarm-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.alarm-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 2px solid var(--color-terracotta);
+  border-radius: var(--radius-lg);
+  background: var(--color-white);
+}
+.alarm-item-name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+.alarm-item-name span {
+  margin-left: 0.5em;
+  font-size: var(--fs-sm);
+  color: var(--color-ink-soft);
+}
+.alarm-item-name .alarm-item-time {
+  margin: 0 0.5em 0 0;
+  font-size: inherit;
+  color: var(--color-indigo-deep);
+}
