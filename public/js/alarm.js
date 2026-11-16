@@ -243,6 +243,7 @@ const MedAlarm = (() => {
   let holdUntil = 0; // カメラの画面を開くまでのあいだ、出し直さない
   let dialog = null;
   let items = []; // いま知らせている予定 [{ schedule, log, at }]
+  let shownKey = ''; // いま画面に描いているお薬（予定の id をつないだもの）
   let audioCtx = null;
   let soundTimer = null;
   let lastSpokenAt = 0;
@@ -349,8 +350,10 @@ const MedAlarm = (() => {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
           カメラを起動する
         </button>
-        <p class="text-sm alarm-note" id="alarm-multi-note" hidden>カメラでの記録は、お薬1つずつ行います。</p>
         <button type="button" class="btn btn-outline" data-alarm="no-video">映像なしで「飲んだ」を記録</button>
+        <p class="text-sm alarm-note" id="alarm-multi-note" hidden>お薬は1つずつ記録します。飲んだお薬のボタンを押してください。</p>
+        <ul class="alarm-items" id="alarm-items" hidden></ul>
+        <p class="text-sm alarm-note" id="alarm-skip-note" hidden>スキップするときは、「カメラで記録する」を押すと出る画面から選べます。</p>
         <button type="button" class="btn btn-ghost" data-alarm="snooze">あとで（${SNOOZE_MIN}分後にもう一度お知らせ）</button>
         <p class="text-sm alarm-note" id="alarm-sound-hint" hidden>音が鳴らないときは、画面のどこかに一度触れてください。</p>
       </div>`;
@@ -359,21 +362,28 @@ const MedAlarm = (() => {
     dialog.querySelector('[data-alarm="camera"]').addEventListener('click', onCamera);
     dialog.querySelector('[data-alarm="no-video"]').addEventListener('click', onRecordWithoutVideo);
     dialog.querySelector('[data-alarm="snooze"]').addEventListener('click', onSnooze);
+    // お薬が複数あるときの、お薬ごとのボタン
+    dialog.querySelector('#alarm-items').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const item = items.find(({ schedule }) => schedule.id === btn.dataset.id);
+      if (!item) return;
+      if (btn.dataset.act === 'camera') startCamera(item);
+      else recordWithoutVideo([item], btn);
+    });
     document.body.appendChild(dialog);
   }
 
   function show(due) {
     if (!dialog) buildDialog();
     items = due;
-    dialog.querySelector('#alarm-time').textContent = formatClock(due[0].at);
-    dialog.querySelector('#alarm-meds').innerHTML = due
-      .map(({ schedule }) => {
-        const med = schedule.medications || {};
-        const amount = `${med.dosage || ''}${med.unit || ''}`;
-        return `<li>${escapeText(med.name || 'お薬')}${amount ? `<span>${escapeText(amount)}</span>` : ''}</li>`;
-      })
-      .join('');
-    dialog.querySelector('#alarm-multi-note').hidden = due.length <= 1;
+
+    // 知らせるお薬が変わったときだけ描き直す（10秒ごとの判定のたびに描き直すと、押している最中のボタンが作り直されてしまう）
+    const key = due.map(({ schedule }) => schedule.id).join(',');
+    if (key !== shownKey) {
+      shownKey = key;
+      render(due);
+    }
 
     if (!dialog.open) {
       dialog.showModal();
@@ -382,16 +392,57 @@ const MedAlarm = (() => {
     }
   }
 
+  // お薬が 1 つのとき … 大きな「カメラを起動する」と「映像なしで記録」のボタン
+  // お薬が複数のとき … お薬ごとに「カメラで記録する」「映像なしで記録」のボタンを並べ、1つずつ記録してもらう
+  // （まとめて 1 回で記録すると、飲んでいないお薬や、前の時刻から残っていたお薬まで「飲んだ」になってしまうため）
+  function render(due) {
+    const multi = due.length > 1;
+    const label = ({ schedule }) => {
+      const med = schedule.medications || {};
+      const amount = `${med.dosage || ''}${med.unit || ''}`;
+      return `${escapeText(med.name || 'お薬')}${amount ? `<span>${escapeText(amount)}</span>` : ''}`;
+    };
+
+    dialog.querySelector('#alarm-time').textContent = formatClock(due[0].at);
+    const medsEl = dialog.querySelector('#alarm-meds');
+    medsEl.hidden = multi;
+    medsEl.innerHTML = multi ? '' : `<li>${label(due[0])}</li>`;
+    dialog.querySelector('[data-alarm="camera"]').hidden = multi;
+    dialog.querySelector('[data-alarm="no-video"]').hidden = multi;
+    dialog.querySelector('#alarm-multi-note').hidden = !multi;
+    dialog.querySelector('#alarm-skip-note').hidden = !multi;
+
+    const itemsEl = dialog.querySelector('#alarm-items');
+    itemsEl.hidden = !multi;
+    itemsEl.innerHTML = multi
+      ? due
+          .map((item) => {
+            const id = escapeText(item.schedule.id);
+            return `
+              <li class="alarm-item">
+                <p class="alarm-item-name"><span class="alarm-item-time">${formatClock(item.at)}</span>${label(item)}</p>
+                <button type="button" class="btn btn-accent" data-act="camera" data-id="${id}">カメラで記録する</button>
+                <button type="button" class="btn btn-outline" data-act="no-video" data-id="${id}">映像なしで「飲んだ」を記録</button>
+              </li>`;
+          })
+          .join('')
+      : '';
+  }
+
   function hide() {
     stopSound();
     releaseWakeLock();
     if (dialog?.open) dialog.close();
     items = [];
+    shownKey = '';
   }
 
   // ---- ボタン ----
   function onCamera() {
-    const item = items[0];
+    startCamera(items[0]);
+  }
+
+  function startCamera(item) {
     if (!item) return;
     holdUntil = Date.now() + 15 * 1000;
     // ネイティブ版：端末のアラームの音を止め、知らせていた予定を記録待ちにする
@@ -405,16 +456,26 @@ const MedAlarm = (() => {
     }
   }
 
-  async function onRecordWithoutVideo(e) {
-    const btn = e.currentTarget;
+  function onRecordWithoutVideo(e) {
+    recordWithoutVideo(items.slice(0, 1), e.currentTarget); // このボタンは、お薬が 1 つのときだけ出す
+  }
+
+  // 選んだお薬だけを、映像なしで「飲んだ」と記録する。ほかに知らせるお薬が残っていれば、画面はそのまま続ける
+  async function recordWithoutVideo(targets, btn) {
+    const named = items.length > 1 && targets.length === 1;
+    const message = named
+      ? `「${targets[0].schedule.medications?.name || 'お薬'}」の服薬を記録しました。`
+      : '服薬を記録しました。';
     btn.disabled = true;
     try {
-      for (const { schedule, log } of items) {
+      for (const { schedule, log } of targets) {
         const logId = log?.id || (await Api.createLog({ schedule_id: schedule.id, date: localDateStr(new Date()) })).log.id;
         await Api.takeLog(logId, {});
+        // 取り直す前でも画面に反映されるよう、手元の記録も書き換えておく
+        logs = logs.filter((l) => l.id !== logId).concat({ id: logId, schedule_id: schedule.id, status: 'taken' });
       }
-      hide();
-      showToast('服薬を記録しました。', 'success');
+      evaluate(); // 記録したお薬を外す（残りがあれば続けて知らせ、無ければ閉じる）
+      showToast(message, 'success');
       options.onRecorded?.();
       await refresh();
     } catch (err) {
