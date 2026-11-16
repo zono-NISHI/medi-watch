@@ -20,11 +20,15 @@ const SELF_TARGET = { id: profile.id, isSelf: true, canViewVideo: true };
 // 服薬アラーム（js/alarm.js）の「カメラを起動する」から来たとき（?take=スケジュールID）
 const takeFromUrl = new URLSearchParams(location.search).get('take');
 if (takeFromUrl) history.replaceState(null, '', location.pathname);
+// アラームから来て、撮影画面を開くまでのあいだ true。このあいだは画面のアラームを出さない
+// （撮影画面より先に、アラームの画面が一瞬出てしまうため）
+let takePending = !!takeFromUrl;
 
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let currentLogId = null;
+let currentScheduleId = null;
 let currentMedName = '';
 let lastMerged = []; // 最後に表示した自分の予定（アラームから撮影を始めるときに使う）
 
@@ -88,12 +92,19 @@ ViewTarget.init()
   .catch((err) => console.error(err))
   .finally(async () => {
     await runPoll();
-    if (takeFromUrl) startTakeFromAlarm(takeFromUrl);
+    if (!takeFromUrl) return;
+    try {
+      await startTakeFromAlarm(takeFromUrl);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      takePending = false; // 撮影画面を開けなかったときは、画面のアラームで知らせる
+    }
   });
 
 // 服薬アラーム：ホームでは画面を移らずに、この画面の撮影モーダルを開く
 MedAlarm.start({
-  isBusy: () => modal.open,
+  isBusy: () => modal.open || takePending,
   onStartCamera: ({ schedule, log }) => {
     if (!ViewTarget.get()?.isSelf) {
       ViewTarget.select(profile.id);
@@ -307,12 +318,17 @@ const VIDEO_BITS_PER_SECOND = 1000000; // 約1Mbps（30秒で約4MB）
 let recordTimer = null;
 let finishing = false; // 自動の記録とボタンの記録が重ならないようにする
 
+const takeSubEl = document.getElementById('take-modal-sub');
+// 「映像なしで記録」のボタンは、録画中は「映像つき」のボタンと対になる言い方にする
+const LABEL_NO_VIDEO = '映像なしで「飲んだ」を記録';
+const LABEL_NO_VIDEO_RECORDING = '飲みました（映像なしで記録する）';
+
 async function openTakeModal({ logId, scheduleId, medName }) {
   currentLogId = logId || (await ensureLogExists(scheduleId));
+  currentScheduleId = scheduleId || null;
   currentMedName = medName || 'お薬';
 
   document.getElementById('take-modal-title').textContent = `「${currentMedName}」を服用しましょう`;
-  document.getElementById('take-modal-sub').textContent = `服用後、ボタンを押して記録してください。カメラの利用は任意です。録画は${MAX_RECORD_SECONDS}秒たつと自動で終わり、そのまま記録されます。`;
   uploadStatus.textContent = '';
   resetCameraUi();
 
@@ -336,15 +352,28 @@ function resetCameraUi() {
   startCameraBtn.hidden = false;
   finishTakeBtn.hidden = true;
   takeWithoutVideoBtn.hidden = false;
+  takeWithoutVideoBtn.textContent = LABEL_NO_VIDEO;
+  takeSubEl.textContent = `服用後、ボタンを押して記録してください。カメラの利用は任意です。録画は${MAX_RECORD_SECONDS}秒たつと自動で終わり、そのまま記録されます。`;
+  modal.classList.remove('is-recording');
   recordedChunks = [];
 }
 
 document.getElementById('modal-close-btn').addEventListener('click', () => closeModal());
-modal.addEventListener('cancel', () => closeModal());
+modal.addEventListener('cancel', (e) => {
+  e.preventDefault(); // 閉じるかどうかは closeModal で決める
+  closeModal();
+});
 
+// 「×」などで、記録せずに閉じたとき
 function closeModal() {
+  if (finishing) return; // 記録の送信中は閉じない（記録されたのに「あとで」になるのを防ぐ）
   stopCamera();
   modal.close();
+  // お薬の時間になっている予定なら、アラームの「あとで」と同じ扱いにする
+  // （閉じた直後にアラームの画面へ戻すと迷う。何もしないと、ネイティブ版では今日はもう鳴らない）
+  if (currentScheduleId && MedAlarm.snoozeIfDue(currentScheduleId)) {
+    showToast(`記録せずに閉じました。${MedAlarm.SNOOZE_MIN}分後にもう一度お知らせします。`, 'info', 6000);
+  }
 }
 
 startCameraBtn.addEventListener('click', async () => {
@@ -360,8 +389,12 @@ startCameraBtn.addEventListener('click', async () => {
     recordIndicator.hidden = false;
     startCameraBtn.hidden = true;
     finishTakeBtn.hidden = false;
-    // 録画中は「映像つきで記録」だけを出し、ボタンの役割が重ならないようにする
-    takeWithoutVideoBtn.hidden = true;
+    // 録画中も「映像なしで記録」を選べるようにする（アラームから来るとカメラがすぐ起動するため、
+    // 隠すと「×」で閉じない限り映像なしを選べない）。ボタンが1つ増える分、映像の枠を低くし、
+    // 説明文を短くして、ボタンが画面に収まるようにする（css/home.css の .is-recording）
+    takeWithoutVideoBtn.textContent = LABEL_NO_VIDEO_RECORDING;
+    takeSubEl.textContent = `服用後、下のボタンを押して記録してください。${MAX_RECORD_SECONDS}秒たつと、自動で映像つきで記録されます。`;
+    modal.classList.add('is-recording');
 
     recordedChunks = [];
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
@@ -464,18 +497,26 @@ async function uploadVideo(blob) {
 }
 
 takeWithoutVideoBtn.addEventListener('click', async () => {
+  if (finishing) return; // 映像つきの記録（ボタン・30秒の自動）と重ならないようにする
+  finishing = true;
   takeWithoutVideoBtn.disabled = true;
+  finishTakeBtn.disabled = true;
+  const wasRecording = !!mediaStream;
   try {
-    stopCamera();
+    stopCamera(); // 録画中だった場合、撮った映像は保存せずに捨てる
     await Api.takeLog(currentLogId, {});
-    showToast('服薬を記録しました。', 'success');
+    showToast(wasRecording ? '映像なしで服薬を記録しました。' : '服薬を記録しました。', 'success');
     modal.close();
     loadTodaySchedules();
     MedAlarm.refresh(); // 記録した予定のアラームを止める
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
+    // カメラは止めたので、録画中だった場合はカメラ起動前の表示に戻す
+    if (wasRecording) resetCameraUi();
   } finally {
+    finishing = false;
     takeWithoutVideoBtn.disabled = false;
+    finishTakeBtn.disabled = false;
   }
 });
 

@@ -75,6 +75,20 @@ const NativeAlarm = (() => {
     }
   }
 
+  // 画面から「あとで」にする（5分後に、端末のアラームを音つきでもう一度鳴らす）
+  // items: MedAlarm が知らせている予定 [{ schedule, at }]
+  async function snooze(items) {
+    if (!plugin) return;
+    try {
+      lastStatus = await plugin.snooze({
+        items: items.map(({ schedule, at }) => ({ id: schedule.id, origin: at.getTime() })),
+      });
+    } catch (err) {
+      // 古い版のアプリには snooze が無い。その場合は画面のアラームだけが 5 分後に出る
+      console.warn('[alarm] 端末のアラームを「あとで」にできませんでした:', err);
+    }
+  }
+
   // 端末のアラームが音を鳴らせる状態か（このときは画面のアラームは音を出さない）
   function ringsNatively() {
     return !!plugin && !!lastStatus?.notifications;
@@ -176,7 +190,7 @@ const NativeAlarm = (() => {
     })[c]);
   }
 
-  return { available, sync, ringsNatively, status, missing, fix, clear, renderSetupNotice, renderChecks };
+  return { available, sync, snooze, ringsNatively, status, missing, fix, clear, renderSetupNotice, renderChecks };
 })();
 
 const MedAlarm = (() => {
@@ -369,11 +383,27 @@ const MedAlarm = (() => {
   }
 
   function onSnooze() {
+    snoozeItems(items);
+  }
+
+  // 「あとで」にする。ネイティブ版では、端末のアラームも 5 分後に鳴らし直す
+  // （「カメラを起動する」で端末のアラームは止まっており、何もしないと今日はもう鳴らないため）
+  function snoozeItems(targets) {
     try {
       localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_MIN * 60 * 1000));
     } catch { /* 保存できない場合は、このページを開いているあいだだけ止める */ }
     holdUntil = Date.now() + SNOOZE_MIN * 60 * 1000;
+    NativeAlarm.snooze(targets);
     hide();
+  }
+
+  // 撮影画面を記録せずに閉じたときに呼ぶ。その予定がいま知らせる対象（服薬時刻から60分以内で未記録）なら、
+  // 「あとで」と同じ扱いにして true を返す。対象でなければ何もしない（時刻より前に開いて閉じただけ、など）
+  function snoozeIfDue(scheduleId) {
+    const due = dueItems();
+    if (!due.some(({ schedule }) => schedule.id === scheduleId)) return false;
+    snoozeItems(due);
+    return true;
   }
 
   // 「あとで」は画面を移っても続くよう localStorage に保存する
@@ -501,5 +531,5 @@ const MedAlarm = (() => {
     })[c]);
   }
 
-  return { start, refresh };
+  return { start, refresh, snoozeIfDue, SNOOZE_MIN };
 })();
