@@ -76,6 +76,53 @@ public final class AlarmScheduler {
         }
     }
 
+    /**
+     * 端末の電源を入れたあとに呼ぶ（BootReceiver）。
+     *
+     * 電源が切れているあいだに服薬時刻を過ぎた予定は、予約が消えているので鳴らない。
+     * reschedule() は「今より後」の時刻しか予約しないため、そのままでは今日はもう鳴らず、
+     * 利用者は服薬時刻を過ぎたことに気づけない。そこで、服薬時刻から 60 分以内
+     * （画面のアラームと同じ範囲）で、まだ記録していない予定を、数秒後に鳴らす。
+     *
+     * ここで直接鳴らさず「あとで」と同じ仕組みで数秒後に予約するのは、Android 15 以降、
+     * 起動時の知らせ（BOOT_COMPLETED）からは音を鳴らすサービスを始められないため
+     * （アラームの予約から始めるのは許されている）。
+     */
+    static void catchUpAfterBoot(Context context) {
+        AlarmStore store = new AlarmStore(context);
+        long now = System.currentTimeMillis();
+        long ringAt = now + AlarmStore.BOOT_CATCH_UP_DELAY_MS;
+        JSONObject snoozes = store.snoozes();
+        Calendar today = Calendar.getInstance();
+
+        try {
+            // 電源が切れているあいだに服薬時刻を過ぎた予定
+            for (AlarmStore.Schedule s : store.schedules()) {
+                long at = s.occurrenceOn(today);
+                if (at < 0) continue;
+                long late = now - at;
+                if (late < 0 || late > AlarmStore.ALARM_WINDOW_MS) continue;
+                if (store.isDoneToday(s.id) || store.lastAlerted(s.id) >= at) continue; // 記録済み・もう鳴らした
+                if (s.updatedAt > at) continue; // 時刻を過ぎてから登録・変更した予定は鳴らさない（画面のアラームと同じ）
+                store.markAlerted(s.id, at);
+                snoozes.put(s.id, new JSONObject().put("at", ringAt).put("origin", at));
+            }
+
+            // 鳴っている最中に電源が切れた予定（音も通知も消えているので、もう一度鳴らす）
+            for (AlarmStore.Item item : store.ringing()) {
+                if (snoozes.has(item.id) || store.findSchedule(item.id) == null || store.isDoneToday(item.id)) continue;
+                if (item.origin <= 0 || now - item.origin > AlarmStore.ALARM_WINDOW_MS) continue;
+                snoozes.put(item.id, new JSONObject().put("at", ringAt).put("origin", item.origin));
+            }
+        } catch (org.json.JSONException ignored) {
+            // put に失敗することはない（値は数値だけ）
+        }
+
+        store.saveRinging(new ArrayList<>()); // 再起動した時点で、鳴っているものは無い
+        store.saveSnoozes(snoozes);
+        reschedule(context);
+    }
+
     /** 予約していたアラームの時刻になったとき（AlarmReceiver から呼ばれる） */
     static void onAlarmFired(Context context) {
         AlarmStore store = new AlarmStore(context);

@@ -149,10 +149,12 @@ async function loadTodaySchedules() {
   const container = document.getElementById('schedule-list');
   const target = ViewTarget.get() || SELF_TARGET;
   try {
-    const [{ schedules }, { logs }] = await Promise.all([
+    const [{ schedules }, { logs: fetchedLogs }] = await Promise.all([
       Api.listSchedules(target.isSelf ? undefined : target.id),
       Api.listLogs({ patient_id: target.id, date: todayStr() }),
     ]);
+    // 自分の予定で、時刻を過ぎたのに記録がまだ無いものは、ここで「未記録」の記録を作る
+    const logs = target.isSelf ? await ensureOverdueLogs(schedules, fetchedLogs) : fetchedLogs;
 
     // 読み込み中に別の人へ切り替えられていたら、古い結果は捨てる
     if ((ViewTarget.get() || SELF_TARGET).id !== target.id) return;
@@ -165,6 +167,34 @@ async function loadTodaySchedules() {
     console.error(err);
     throw err; // ポーリング側でリトライ間隔を後退させるために再送出する
   }
+}
+
+// 服薬時刻を過ぎたのに、今日の記録（medication_logs）がまだ無い自分の予定について、「未記録」の記録を作る。
+// 今日の記録はふだんサーバーの cron が作るが、サーバーが止まっていた（しばらく誰も使わず休止していた）
+// あいだに時刻を過ぎると、記録が無いままになる。するとホームには「時間が過ぎています」と出るのに、
+// 記録タブには何も出ない、という食い違いが起きる。ホームを開いた時点で作り、記録タブにも「飲み忘れ」と出るようにする。
+// （サーバーは同じ予定の記録を二重に作らない。作れなくても表示は続け、cron が後で作る）
+async function ensureOverdueLogs(schedules, logs) {
+  const dow = new Date().getDay();
+  const missing = (schedules || []).filter(
+    (s) =>
+      (s.days_of_week || [0, 1, 2, 3, 4, 5, 6]).includes(dow) &&
+      isPastDue(s.scheduled_time) &&
+      !isChangedAfterDue(s) && // 時刻を過ぎてから登録・変更した予定は、明日から記録する
+      !findTodayLog(s, logs)
+  );
+  if (missing.length === 0) return logs || [];
+  const created = await Promise.all(
+    missing.map((s) =>
+      Api.createLog({ schedule_id: s.id, date: todayStr() })
+        .then(({ log }) => log)
+        .catch((err) => {
+          console.warn('未記録の記録を作れませんでした:', err);
+          return null;
+        })
+    )
+  );
+  return [...(logs || []), ...created.filter(Boolean)];
 }
 
 function todayStr() {
@@ -220,7 +250,8 @@ function renderSchedules(merged, target, hasSchedules) {
           : status === 'skipped'
           ? '<span class="badge badge-skipped">スキップ</span>'
           : isOverdue
-          ? '<span class="badge badge-skipped">時間が過ぎています</span>'
+          // 「スキップ」と同じ色だと、何もしていないのにスキップしたように見えるため、記録タブの「飲み忘れ」と同じ濃い色にする
+          ? '<span class="badge badge-missed">時間が過ぎています</span>'
           : '<span class="badge badge-pending">これから</span>';
 
       const actionHtml =

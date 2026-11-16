@@ -83,6 +83,8 @@ const NativeAlarm = (() => {
           days: s.days_of_week || [0, 1, 2, 3, 4, 5, 6],
           label: medLabel(s),
           speech: medSpeechPhrase(s.medications), // 端末のアラームが読み上げる「○○を3錠」
+          // 電源を入れ直したあとに鳴らし直すとき、時刻を過ぎてから登録・変更した予定を除くために渡す
+          updatedAt: s.updated_at ? new Date(s.updated_at).getTime() : 0,
         })),
         doneIds: logs.filter((l) => l.schedule_id && l.status !== 'pending').map((l) => l.schedule_id),
       });
