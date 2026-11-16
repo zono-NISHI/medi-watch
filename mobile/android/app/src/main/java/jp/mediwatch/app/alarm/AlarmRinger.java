@@ -1,5 +1,6 @@
 package jp.mediwatch.app.alarm;
 
+import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -7,6 +8,10 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.util.Log;
 import androidx.core.app.NotificationCompat;
 import java.util.ArrayList;
@@ -25,16 +30,30 @@ import jp.mediwatch.app.MainActivity;
  *   2. 「他のアプリの上に重ねて表示」の許可があれば、直接 AlarmActivity を開く
  *      … スマホを操作中（別のアプリを使用中）でも全画面で出る
  *      （1 だけだと、操作中は画面上部の小さな通知になってしまうため）
+ * - 通知は、全画面が見えているかどうかで出し方を変える。
+ *   - 全画面が見えているとき … 画面上部に出ない通知（QUIET_CHANNEL_ID、全画面インテントなし）。
+ *     通知欄には残る。全画面の上に上部の通知（ヘッズアップ）が重なって邪魔にならないようにするため。
+ *   - それ以外（画面が消えている・ロック中・全画面を開けない・ホームボタンなどで全画面を離れた）
+ *     … これまでどおり、重要度「高」＋全画面インテントの通知（CHANNEL_ID）。
+ *   全画面を直接開いたつもりでも開けなかったときは、少し待ってから「高」の通知に出し直す。
  */
 public final class AlarmRinger {
 
     private static final String TAG = "MediAlarm";
     static final String CHANNEL_ID = "medication_alarm_v2";
+    /** 全画面が見えているあいだに使う、画面上部に出ない（ヘッズアップにならない）通知のチャンネル */
+    static final String QUIET_CHANNEL_ID = "medication_alarm_quiet_v1";
     /** 以前の、通知の音で鳴らしていたチャンネル（チャンネルの音の設定は後から変えられないため、作り直した） */
     private static final String OLD_CHANNEL_ID = "medication_alarm_v1";
     static final int NOTIFICATION_ID = 1001;
     public static final String EXTRA_TAKE = "jp.mediwatch.app.TAKE_SCHEDULE_ID";
     static final String ACTION_SNOOZE = "jp.mediwatch.app.alarm.SNOOZE";
+    /** 全画面を直接開いたあと、本当に開いたかを確かめるまでの時間 */
+    private static final long FULL_SCREEN_CHECK_MS = 3000;
+
+    private static final Handler handler = new Handler(Looper.getMainLooper());
+    /** いま出している通知が「画面上部に出ない」版かどうか */
+    private static volatile boolean quiet = false;
 
     private AlarmRinger() {}
 
@@ -54,6 +73,8 @@ public final class AlarmRinger {
         store.saveRinging(items);
 
         ensureChannel(context);
+        // 全画面をそのまま開ける（または、もう開いている）なら、画面上部に出ない通知にする
+        quiet = canShowFullScreenDirectly(context) || AlarmActivity.isVisible();
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.notify(NOTIFICATION_ID, buildNotification(context, store, items));
         AlarmSoundService.start(context); // 音と振動（止めるまで繰り返す）
@@ -64,11 +85,53 @@ public final class AlarmRinger {
             context.startActivity(show);
         } catch (RuntimeException e) {
             Log.w(TAG, "全画面のアラームを開けませんでした（通知だけで知らせます）", e);
+            setFullScreenVisible(context, false);
+            return;
         }
+
+        if (quiet) {
+            // 全画面が開かなかった場合（機種の制限など）に、知らせが通知欄だけにならないよう、
+            // 少し待っても全画面が見えていなければ、画面上部にも出る通知に出し直す
+            Context app = context.getApplicationContext();
+            handler.postDelayed(() -> {
+                if (!AlarmActivity.isVisible()) setFullScreenVisible(app, false);
+            }, FULL_SCREEN_CHECK_MS);
+        }
+    }
+
+    /**
+     * 全画面（AlarmActivity）が見えるようになった・見えなくなったときに呼ぶ。
+     * 鳴っているあいだだけ、通知を出し直す。
+     * - 見えている … 画面上部に出ない通知にする（出ている上部の通知も引っ込む）
+     * - 見えない   … 画面上部にも出る通知にする（ホームボタンなどで全画面を離れても気付けるように）
+     */
+    static void setFullScreenVisible(Context context, boolean visible) {
+        if (quiet == visible) return;
+        AlarmStore store = new AlarmStore(context);
+        List<AlarmStore.Item> items = store.ringing();
+        if (items.isEmpty()) return;
+        quiet = visible;
+        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        nm.notify(NOTIFICATION_ID, buildNotification(context, store, items));
+    }
+
+    /**
+     * 全画面をこちらから直接開いて、そのまま見てもらえる状態か。
+     * 画面が点いていて、ロックが解除されていて、「他のアプリの上に重ねて表示」が許可されているとき。
+     * （画面が消えている・ロック中のときは、通知の全画面インテントで全画面になるので、上部の通知は出ない）
+     */
+    private static boolean canShowFullScreenDirectly(Context context) {
+        PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        KeyguardManager km = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        boolean screenOn = pm != null && pm.isInteractive();
+        boolean unlocked = km != null && !km.isKeyguardLocked();
+        boolean overlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context);
+        return screenOn && unlocked && overlay;
     }
 
     /** 止める（カメラを起動したとき・記録が済んだとき） */
     public static void dismiss(Context context) {
+        handler.removeCallbacksAndMessages(null);
         new AlarmStore(context).saveRinging(new ArrayList<>());
         AlarmSoundService.stop(context);
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -126,14 +189,29 @@ public final class AlarmRinger {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm.getNotificationChannel(OLD_CHANNEL_ID) != null) nm.deleteNotificationChannel(OLD_CHANNEL_ID);
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return;
 
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "お薬の時間のアラーム", NotificationManager.IMPORTANCE_HIGH);
-        channel.setDescription("服薬の時刻に、画面いっぱいにお知らせします（音と振動はアプリが鳴らします）。");
-        channel.setSound(null, null); // 音は AlarmSound が鳴らす（通知の音と二重にならないように）
-        channel.enableVibration(false);
-        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-        nm.createNotificationChannel(channel);
+        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "お薬の時間のアラーム", NotificationManager.IMPORTANCE_HIGH);
+            channel.setDescription("服薬の時刻に、画面いっぱいにお知らせします（音と振動はアプリが鳴らします）。");
+            channel.setSound(null, null); // 音は AlarmSound が鳴らす（通知の音と二重にならないように）
+            channel.enableVibration(false);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            nm.createNotificationChannel(channel);
+        }
+
+        if (nm.getNotificationChannel(QUIET_CHANNEL_ID) == null) {
+            // 重要度「低」… 通知欄には出るが、画面上部には出ない（全画面の上に重ならない）
+            NotificationChannel quietChannel = new NotificationChannel(
+                QUIET_CHANNEL_ID,
+                "お薬の時間のアラーム（画面表示中）",
+                NotificationManager.IMPORTANCE_LOW
+            );
+            quietChannel.setDescription("アラームの画面を表示しているあいだ、通知欄にだけ出すお知らせです。");
+            quietChannel.setSound(null, null);
+            quietChannel.enableVibration(false);
+            quietChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            nm.createNotificationChannel(quietChannel);
+        }
     }
 
     /** アラームのチャンネルが通知オフにされていないか */
@@ -176,22 +254,23 @@ public final class AlarmRinger {
         AlarmStore.Schedule first = store.findSchedule(items.get(0).id);
         String title = (first != null ? first.timeText() + "　" : "") + "お薬の時間です";
 
-        return new NotificationCompat.Builder(context, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, quiet ? QUIET_CHANNEL_ID : CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(title)
             .setContentText(describe(store, items) + "を飲みましょう")
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(quiet ? NotificationCompat.PRIORITY_LOW : NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSilent(true) // 音と振動は AlarmSound が鳴らす
             .setOngoing(true)
             .setAutoCancel(false)
             .setTimeoutAfter(AlarmStore.ALARM_WINDOW_MS)
             .setContentIntent(fullScreen)
-            .setFullScreenIntent(fullScreen, true)
             .setDeleteIntent(snooze) // 通知を横に払って消したときは「あとで」と同じにする（音を止め、5 分後にもう一度）
             .addAction(0, "カメラを起動する", camera)
-            .addAction(0, "あとで（5分後）", snooze)
-            .build();
+            .addAction(0, "あとで（5分後）", snooze);
+        // 全画面インテントがあると、操作中は画面上部に通知が出るため、全画面が見えているあいだは付けない
+        if (!quiet) builder.setFullScreenIntent(fullScreen, true);
+        return builder.build();
     }
 }
