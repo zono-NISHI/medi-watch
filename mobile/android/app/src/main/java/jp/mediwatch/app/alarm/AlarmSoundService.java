@@ -26,14 +26,30 @@ import java.util.List;
 public class AlarmSoundService extends Service {
 
     private static final String TAG = "MediAlarm";
+    /** 通知の付け替えだけを頼むとき（60 分で止めるタイマーを延ばさない） */
+    private static final String EXTRA_RELINK = "jp.mediwatch.app.alarm.RELINK";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable timeout = () -> AlarmRinger.dismiss(this);
+    private boolean timeoutPosted = false;
 
     /** 鳴らし始める（すでに鳴っていれば、通知の内容だけ新しくする） */
     static void start(Context context) {
+        start(context, false);
+    }
+
+    /**
+     * 通知の番号が変わったときに、サービスの通知を新しい番号の通知に付け替える
+     * （AlarmRinger.setFullScreenVisible から呼ぶ）
+     */
+    static void relink(Context context) {
+        start(context, true);
+    }
+
+    private static void start(Context context, boolean relink) {
         try {
-            ContextCompat.startForegroundService(context, new Intent(context, AlarmSoundService.class));
+            Intent intent = new Intent(context, AlarmSoundService.class).putExtra(EXTRA_RELINK, relink);
+            ContextCompat.startForegroundService(context, intent);
         } catch (RuntimeException e) {
             // 裏からサービスを始められない場合も、音だけは鳴らす
             Log.w(TAG, "アラームのサービスを開始できませんでした（音だけ鳴らします）", e);
@@ -59,15 +75,19 @@ public class AlarmSoundService extends Service {
                 .setContentTitle("お薬の時間です")
                 .build()
             : AlarmRinger.buildNotification(this, store, items);
+        int id = AlarmRinger.notificationId();
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(AlarmRinger.NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+                startForeground(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
             } else {
-                startForeground(AlarmRinger.NOTIFICATION_ID, notification);
+                startForeground(id, notification);
             }
         } catch (RuntimeException e) {
             Log.w(TAG, "アラームのサービスをフォアグラウンドにできませんでした", e);
         }
+        // 新しい番号の通知に付け替えたので、もう一方の番号の通知（古い出し方のもの）を消す
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        nm.cancel(AlarmRinger.otherNotificationId());
 
         if (items.isEmpty()) {
             // 鳴らす予定が無い（すでに記録した・「あとで」にした）
@@ -77,9 +97,14 @@ public class AlarmSoundService extends Service {
         }
 
         AlarmSound.start(this);
-        // 鳴らしっぱなしにならないよう、アラームを出す時間（60 分）が過ぎたら止める
-        handler.removeCallbacks(timeout);
-        handler.postDelayed(timeout, AlarmStore.ALARM_WINDOW_MS);
+        // 鳴らしっぱなしにならないよう、アラームを出す時間（60 分）が過ぎたら止める。
+        // 通知の付け替えだけのときは、すでに数え始めていれば延ばさない
+        boolean relink = intent != null && intent.getBooleanExtra(EXTRA_RELINK, false);
+        if (!relink || !timeoutPosted) {
+            handler.removeCallbacks(timeout);
+            handler.postDelayed(timeout, AlarmStore.ALARM_WINDOW_MS);
+            timeoutPosted = true;
+        }
         return START_NOT_STICKY;
     }
 
@@ -87,8 +112,7 @@ public class AlarmSoundService extends Service {
     public void onDestroy() {
         handler.removeCallbacks(timeout);
         AlarmSound.stop(this);
-        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (new AlarmStore(this).ringing().isEmpty()) nm.cancel(AlarmRinger.NOTIFICATION_ID);
+        if (new AlarmStore(this).ringing().isEmpty()) AlarmRinger.cancelNotifications(this);
         super.onDestroy();
     }
 

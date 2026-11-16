@@ -46,6 +46,15 @@ public final class AlarmRinger {
     /** 以前の、通知の音で鳴らしていたチャンネル（チャンネルの音の設定は後から変えられないため、作り直した） */
     private static final String OLD_CHANNEL_ID = "medication_alarm_v1";
     static final int NOTIFICATION_ID = 1001;
+    /**
+     * 通知の出し方を切り替えるときに使う、もう1つの番号。
+     * 同じ番号のまま書き換えても、Android は内容が同じなら「新しい知らせ」と見なさず、
+     * 画面上部に出してくれない（通知欄の中が変わるだけ）。そのため、切り替えるたびに
+     * 1001 と 1002 を入れ替えて新しい通知として出し、古い方は消す。
+     */
+    static final int NOTIFICATION_ID_ALT = 1002;
+    /** いま出している通知の番号 */
+    private static volatile int notificationId = NOTIFICATION_ID;
     public static final String EXTRA_TAKE = "jp.mediwatch.app.TAKE_SCHEDULE_ID";
     static final String ACTION_SNOOZE = "jp.mediwatch.app.alarm.SNOOZE";
     /** 全画面を直接開いたあと、本当に開いたかを確かめるまでの時間 */
@@ -74,9 +83,7 @@ public final class AlarmRinger {
 
         ensureChannel(context);
         // 全画面をそのまま開ける（または、もう開いている）なら、画面上部に出ない通知にする
-        quiet = canShowFullScreenDirectly(context) || AlarmActivity.isVisible();
-        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        nm.notify(NOTIFICATION_ID, buildNotification(context, store, items));
+        post(context, store, items, canShowFullScreenDirectly(context) || AlarmActivity.isVisible());
         AlarmSoundService.start(context); // 音と振動（止めるまで繰り返す）
 
         // 操作中でも全画面で出す（「他のアプリの上に重ねて表示」が許可されていれば開ける）
@@ -103,16 +110,49 @@ public final class AlarmRinger {
      * 全画面（AlarmActivity）が見えるようになった・見えなくなったときに呼ぶ。
      * 鳴っているあいだだけ、通知を出し直す。
      * - 見えている … 画面上部に出ない通知にする（出ている上部の通知も引っ込む）
-     * - 見えない   … 画面上部にも出る通知にする（ホームボタンなどで全画面を離れても気付けるように）
+     * - 見えない   … 画面上部にも出る通知にする（ホームボタンなどで全画面を離れても、払わずに目に入るように）
      */
     static void setFullScreenVisible(Context context, boolean visible) {
         if (quiet == visible) return;
         AlarmStore store = new AlarmStore(context);
         List<AlarmStore.Item> items = store.ringing();
         if (items.isEmpty()) return;
-        quiet = visible;
+        post(context, store, items, visible);
+        // 音を鳴らしているサービスの通知を、新しい番号の通知に付け替える（古い通知はそこで消える）
+        AlarmSoundService.relink(context);
+    }
+
+    /**
+     * 通知を出す。出し方（画面上部に出すか）が変わるときは、番号を入れ替えて新しい通知として出し、
+     * 古い通知を消す（同じ番号の書き換えでは、画面上部に出ない・引っ込まないため）。
+     */
+    private static void post(Context context, AlarmStore store, List<AlarmStore.Item> items, boolean newQuiet) {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        nm.notify(NOTIFICATION_ID, buildNotification(context, store, items));
+        int oldId = notificationId;
+        boolean changed = quiet != newQuiet;
+        quiet = newQuiet;
+        if (changed) notificationId = otherNotificationId();
+        nm.notify(notificationId, buildNotification(context, store, items));
+        // 古い通知がサービスに付いているあいだは消せない（無視される）。その場合は、
+        // サービスが新しい通知に付け替えたときに消える（AlarmSoundService.onStartCommand）
+        if (changed) nm.cancel(oldId);
+    }
+
+    /** いま出している通知の番号 */
+    static int notificationId() {
+        return notificationId;
+    }
+
+    /** いま使っていない方の通知の番号 */
+    static int otherNotificationId() {
+        return notificationId == NOTIFICATION_ID ? NOTIFICATION_ID_ALT : NOTIFICATION_ID;
+    }
+
+    /** アラームの通知を、どちらの番号のものもすべて消す */
+    static void cancelNotifications(Context context) {
+        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        nm.cancel(NOTIFICATION_ID);
+        nm.cancel(NOTIFICATION_ID_ALT);
     }
 
     /**
@@ -134,8 +174,7 @@ public final class AlarmRinger {
         handler.removeCallbacksAndMessages(null);
         new AlarmStore(context).saveRinging(new ArrayList<>());
         AlarmSoundService.stop(context);
-        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        nm.cancel(NOTIFICATION_ID);
+        cancelNotifications(context);
         AlarmActivity.closeIfOpen();
     }
 
