@@ -1,7 +1,10 @@
 package jp.mediwatch.app.alarm;
 
+import android.app.KeyguardManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
@@ -9,6 +12,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.TypedValue;
@@ -19,23 +23,25 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import androidx.core.content.ContextCompat;
 import java.util.List;
 
 /**
  * 鳴っているあいだに全画面（AlarmActivity）を離れたとき（ホームボタンなど）に、
  * 画面の上部に重ねて出す「お薬の時間です」の帯。
  *
- * 全画面を離れたときは、通知を画面上部に出る版（ヘッズアップ）に切り替えているが、
- * 実際に画面上部へ出すかどうかは Android（と機種ごとの設定）が決める。機種や設定によっては
- * 通知欄に入るだけで、上から下へ払わないと見えない。
+ * 通知を画面上部に出る版（ヘッズアップ）にしても、実際に画面上部へ出すかどうかは
+ * Android（と機種ごとの設定）が決める。機種や設定によっては通知欄に入るだけで、上から下へ払わないと見えない。
  * そこで、「他のアプリの上に重ねて表示」の許可（アラームの設定で求めている）を使って、
  * アプリ自身で帯を出す。通知がどう扱われても、すぐ目に入る。
+ * 帯を出しているあいだ、通知は画面上部に出ない版のままにする（帯と通知が重なって、どちらを押すか迷わないように）。
+ * 帯を出せなかったときだけ、代わりに通知を画面上部に出す（AlarmRinger.showHeadsUpInstead）。
  *
  * - 帯を押す・「アラームを開く」… 全画面のアラームに戻る
  * - 「あとで（5分後）」        … 全画面の「あとで」と同じ
  * - 全画面に戻った・止めた・記録が済んだら消える。帯の外は、そのまま下の画面を操作できる
- * - ロック中は見えない（ロック画面では、通知と全画面で知らせる）。ロックを解除すると見える
- * - 「他のアプリの上に重ねて表示」が許可されていなければ出さない（通知だけで知らせる）
+ * - 帯を出しているあいだに画面を消して点け直すと、全画面のアラームを出し直す（帯はロック画面では見えないため）
+ * - 「他のアプリの上に重ねて表示」が許可されていなければ出さない（通知を画面上部に出して知らせる）
  */
 final class AlarmBanner {
 
@@ -49,8 +55,20 @@ final class AlarmBanner {
     private static View view;
     private static TextView titleView;
     private static TextView medsView;
+    private static BroadcastReceiver screenOnReceiver;
 
     private AlarmBanner() {}
+
+    /**
+     * いま帯を出せるか。「他のアプリの上に重ねて表示」が許可されていて、画面が点いていて、ロックが解除されているとき。
+     * （ロック中は帯が見えないので、通知と全画面で知らせる）
+     */
+    static boolean canShow(Context context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) return false;
+        PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        KeyguardManager km = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        return pm != null && pm.isInteractive() && km != null && !km.isKeyguardLocked();
+    }
 
     /** 帯を出す（すでに出ていれば、内容だけ新しくする） */
     static void show(Context context) {
@@ -78,21 +96,26 @@ final class AlarmBanner {
             hideNow();
             return;
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(app)) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(app)) {
+            AlarmRinger.showHeadsUpInstead(app);
+            return;
+        }
 
         if (view == null) {
             WindowManager wm = (WindowManager) app.getSystemService(Context.WINDOW_SERVICE);
-            if (wm == null) return;
             View built = build(app);
             try {
+                if (wm == null) throw new IllegalStateException("WindowManager がありません");
                 wm.addView(built, layoutParams());
             } catch (RuntimeException e) {
-                Log.w(TAG, "画面上部の帯を出せませんでした（通知だけで知らせます）", e);
+                Log.w(TAG, "画面上部の帯を出せませんでした（代わりに通知を画面上部に出します）", e);
                 titleView = null;
                 medsView = null;
+                AlarmRinger.showHeadsUpInstead(app);
                 return;
             }
             view = built;
+            registerScreenOn(app);
             Log.i(TAG, "画面上部に「お薬の時間です」の帯を出しました");
         }
 
@@ -101,8 +124,47 @@ final class AlarmBanner {
         medsView.setText(AlarmRinger.describe(store, items));
     }
 
+    /**
+     * 帯を出しているあいだに画面を消して点け直したら、全画面のアラームを出し直す。
+     * 帯はロック画面では見えず、通知も画面上部に出ない版にしているため、何もしないと
+     * 点け直したときに、鳴っているのに何のお知らせか分かりにくい。
+     * （画面を消したときではなく、点いたときに開く。消した直後に開くと、画面がすぐ点いてしまうため）
+     */
+    private static void registerScreenOn(Context app) {
+        if (screenOnReceiver != null) return;
+        screenOnReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                if (new AlarmStore(app).ringing().isEmpty() || AlarmActivity.isVisible()) return;
+                openFullScreen(app);
+            }
+        };
+        try {
+            ContextCompat.registerReceiver(
+                app,
+                screenOnReceiver,
+                new IntentFilter(Intent.ACTION_SCREEN_ON),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            );
+        } catch (RuntimeException e) {
+            Log.w(TAG, "画面が点いたことを受け取れませんでした", e);
+            screenOnReceiver = null;
+        }
+    }
+
+    private static void unregisterScreenOn() {
+        if (screenOnReceiver == null || view == null) return;
+        try {
+            view.getContext().getApplicationContext().unregisterReceiver(screenOnReceiver);
+        } catch (RuntimeException ignored) {
+            // すでに外れている
+        }
+        screenOnReceiver = null;
+    }
+
     private static void hideNow() {
         if (view == null) return;
+        unregisterScreenOn();
         WindowManager wm = (WindowManager) view.getContext().getSystemService(Context.WINDOW_SERVICE);
         try {
             if (wm != null) wm.removeView(view);

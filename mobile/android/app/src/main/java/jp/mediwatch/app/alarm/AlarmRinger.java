@@ -26,7 +26,9 @@ import jp.mediwatch.app.MainActivity;
  *   音の種類は「アラーム」（USAGE_ALARM）なので、着信音量ではなくアラーム音量で鳴る。
  *   （通知の音で鳴らすと、音量を一度 0 にしてから上げても鳴らなくなるため。AlarmSound を参照）
  * - 通知そのものは音を出さない。通知を横に払って消したときは、音を止めて 5 分後にもう一度鳴らす（hold）。
- * - 鳴っているまま全画面を離れたときは、通知に加えて、画面上部に帯（AlarmBanner）を重ねて出す。
+ * - 鳴っているまま全画面を離れたときは、画面上部に帯（AlarmBanner）を重ねて出す。
+ *   帯を出しているあいだ、通知は画面上部に出ない版のままにする（帯と通知が重ならないように）。
+ *   帯を出せないときだけ、通知を画面上部に出る版に切り替える。
  * - 画面いっぱいの表示（AlarmActivity）は、次の 2 つの方法で出す。
  *   1. 通知の「全画面インテント」… 画面が消えている・ロック中のときに全画面で出る
  *   2. 「他のアプリの上に重ねて表示」の許可があれば、直接 AlarmActivity を開く
@@ -113,21 +115,40 @@ public final class AlarmRinger {
 
     /**
      * 全画面（AlarmActivity）が見えるようになった・見えなくなったときに呼ぶ。
-     * 鳴っているあいだだけ、通知を出し直す。
-     * - 見えている … 画面上部に出ない通知にする（出ている上部の通知も引っ込む）
-     * - 見えない   … 画面上部にも出る通知にする（ホームボタンなどで全画面を離れても、払わずに目に入るように）
+     * 鳴っているあいだだけ、知らせ方を切り替える。
+     * - 見えている … 帯を消し、画面上部に出ない通知にする（出ている上部の通知も引っ込む）
+     * - 見えない   … 画面上部に帯を出す（ホームボタンなどで全画面を離れても、払わずに目に入るように）。
+     *                帯を出せないときは、代わりに通知を画面上部に出る版にする
      */
     static void setFullScreenVisible(Context context, boolean visible) {
-        // 全画面を離れたときは、画面上部に帯も重ねて出す
-        // （通知を画面上部に出すかどうかは Android と機種の設定が決めるので、通知だけに頼らない）
-        if (visible) AlarmBanner.hide();
-        else AlarmBanner.show(context);
-        if (quiet == visible) return;
+        if (visible) {
+            AlarmBanner.hide();
+            setQuiet(context, true);
+            return;
+        }
+        // 全画面を離れたときは、画面上部に帯（AlarmBanner）を出し、通知は画面上部に出さない（帯と重ならないように）。
+        // 帯を出せないとき（「他のアプリの上に重ねて表示」が許可されていない など）だけ、通知を画面上部に出す
+        if (AlarmBanner.canShow(context)) {
+            AlarmBanner.show(context);
+            setQuiet(context, true);
+        } else {
+            setQuiet(context, false);
+        }
+    }
+
+    /** 帯を出そうとして出せなかったとき（AlarmBanner から呼ぶ）。代わりに通知を画面上部に出す */
+    static void showHeadsUpInstead(Context context) {
+        if (!AlarmActivity.isVisible()) setQuiet(context, false);
+    }
+
+    /** 通知を、画面上部に出ない版（true）・出る版（false）に切り替える。鳴っているあいだだけ */
+    private static void setQuiet(Context context, boolean newQuiet) {
+        if (quiet == newQuiet) return;
         AlarmStore store = new AlarmStore(context);
         List<AlarmStore.Item> items = store.ringing();
         if (items.isEmpty()) return;
-        post(context, store, items, visible);
-        Log.i(TAG, visible ? "通知を、画面上部に出ない版に切り替えました" : "通知を、画面上部に出る版に切り替えました");
+        post(context, store, items, newQuiet);
+        Log.i(TAG, newQuiet ? "通知を、画面上部に出ない版に切り替えました" : "通知を、画面上部に出る版に切り替えました");
         // 音を鳴らしているサービスの通知を、新しい番号の通知に付け替える（古い通知はそこで消える）
         AlarmSoundService.relink(context);
     }
