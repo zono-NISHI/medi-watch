@@ -33,7 +33,8 @@ mobile/
 
 1. **Node.js** をインストールする（`npm` / `npx` を使うため。Capacitor 8 には Node.js 22 以上が必要）。
    - https://nodejs.org/ja/download を開き、「Windows」「LTS」と書かれたバージョン、アーキテクチャ「x64」（Snapdragon などの ARM のパソコンなら「ARM64」）を選んで、「Windows インストーラー (.msi)」をダウンロードする。同じページにある「fnm」のコマンド（`winget install Schniz.fnm` など）は別のインストール方法なので、実行しなくてよい。
-   - .msi を開き、初期設定のまま「Next」で進める（「Add to PATH」は有効のまま。「Tools for Native Modules」のチェックは外したままでよい）。
+   - .msi を開き、初期設定のまま「Next」で進める（「Add to PATH」は有効のまま）。
+   - 途中の「Tools for Native Modules」の画面（「Automatically install the necessary tools. …」のチェックボックス）は、**チェックを入れずに**「Next」を押す。これは C/C++ で書かれた npm パッケージをコンパイルするための道具（Python・Visual Studio Build Tools・Chocolatey）を追加で入れる設定で、このプロジェクト（ルートの `npm install` も `mobile/` の Capacitor も）では使わない。入れると時間がかかり、不要なソフトも増える。
    - インストール後は **VS Code（ターミナル）を完全に閉じて開き直す**。開いたままのターミナルでは `npm` が見つからない。新しいターミナルで `node -v` と `npm -v` を実行し、バージョンが表示されれば完了。
    - `npm` を実行して「用語 'npm' は、コマンドレット、関数、…として認識されません」と出るときは、Node.js が入っていないか、インストール前に開いたターミナルを使っている。
    - 「このシステムではスクリプトの実行が無効になっているため…」と出るときは、PowerShell で `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` を一度だけ実行してから、もう一度試す。
