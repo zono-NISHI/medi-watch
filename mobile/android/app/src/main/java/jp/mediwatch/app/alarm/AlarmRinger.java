@@ -25,7 +25,8 @@ import jp.mediwatch.app.MainActivity;
  *   音のあいまに「お薬の時間です。○○を3錠服用してください。」と読み上げる（文は announcement で作る）。
  *   音の種類は「アラーム」（USAGE_ALARM）なので、着信音量ではなくアラーム音量で鳴る。
  *   （通知の音で鳴らすと、音量を一度 0 にしてから上げても鳴らなくなるため。AlarmSound を参照）
- * - 通知そのものは音を出さない。通知を横に払って消したときは「あとで」と同じ扱いにする。
+ * - 通知そのものは音を出さない。通知を横に払って消したときは、音を止めて 5 分後にもう一度鳴らす（hold）。
+ * - 鳴っているまま全画面を離れたときは、通知に加えて、画面上部に帯（AlarmBanner）を重ねて出す。
  * - 画面いっぱいの表示（AlarmActivity）は、次の 2 つの方法で出す。
  *   1. 通知の「全画面インテント」… 画面が消えている・ロック中のときに全画面で出る
  *   2. 「他のアプリの上に重ねて表示」の許可があれば、直接 AlarmActivity を開く
@@ -58,6 +59,8 @@ public final class AlarmRinger {
     private static volatile int notificationId = NOTIFICATION_ID;
     public static final String EXTRA_TAKE = "jp.mediwatch.app.TAKE_SCHEDULE_ID";
     static final String ACTION_SNOOZE = "jp.mediwatch.app.alarm.SNOOZE";
+    /** 通知を横に払って消したとき */
+    static final String ACTION_DISMISSED = "jp.mediwatch.app.alarm.DISMISSED";
     /** 全画面を直接開いたあと、本当に開いたかを確かめるまでの時間 */
     private static final long FULL_SCREEN_CHECK_MS = 3000;
 
@@ -81,6 +84,7 @@ public final class AlarmRinger {
         }
         items.addAll(due);
         store.saveRinging(items);
+        AlarmAnnouncer.stop(); // 画面のアラームが読み上げていたら止める（ここからは、アラームの音と読み上げで知らせる）
 
         ensureChannel(context);
         // 全画面をそのまま開ける（または、もう開いている）なら、画面上部に出ない通知にする
@@ -114,6 +118,10 @@ public final class AlarmRinger {
      * - 見えない   … 画面上部にも出る通知にする（ホームボタンなどで全画面を離れても、払わずに目に入るように）
      */
     static void setFullScreenVisible(Context context, boolean visible) {
+        // 全画面を離れたときは、画面上部に帯も重ねて出す
+        // （通知を画面上部に出すかどうかは Android と機種の設定が決めるので、通知だけに頼らない）
+        if (visible) AlarmBanner.hide();
+        else AlarmBanner.show(context);
         if (quiet == visible) return;
         AlarmStore store = new AlarmStore(context);
         List<AlarmStore.Item> items = store.ringing();
@@ -177,6 +185,7 @@ public final class AlarmRinger {
         new AlarmStore(context).saveRinging(new ArrayList<>());
         AlarmSoundService.stop(context);
         cancelNotifications(context);
+        AlarmBanner.hide();
         AlarmActivity.closeIfOpen();
     }
 
@@ -192,15 +201,19 @@ public final class AlarmRinger {
     }
 
     /**
-     * 「カメラを起動する」を押したとき（全画面・通知のどちらからでも）。
+     * 「カメラを起動する」を押したとき（全画面・通知のどちらからでも）と、通知を横に払って消したとき。
      * 音を止めるが、鳴っていた予定は忘れずに「5 分後に鳴らし直す」予約として残す（記録待ち）。
+     *
+     * 通知を払ったときを「あとで」ではなく記録待ちにするのは、払ったあとでアプリを開いたときに、
+     * アプリの画面のアラームで知らせるため（「あとで」にすると、そのあいだは画面のアラームも出さない。
+     * 払うのは「あとで」ボタンと違って、片付けただけ・うっかり触れただけのことがある）。
      *
      * 同じ時刻のお薬が 2 つあるとき、カメラで記録するのは 1 つずつなので、ここで全部を「済んだ」扱いにすると、
      * 2 つ目は記録していないのに今日はもう鳴らなくなる。撮影画面を開けなかったときも同じ。
      * 記録が済んだ予定は、画面からの sync で予約から外れる（AlarmStore.forgetRemovedSchedules）ので、
      * 5 分後に鳴るのは、記録しないままになっている予定だけ。
      */
-    public static void holdForCamera(Context context) {
+    public static void hold(Context context) {
         AlarmStore store = new AlarmStore(context);
         List<AlarmStore.Item> ringing = store.ringing();
         if (!ringing.isEmpty()) {
@@ -271,6 +284,10 @@ public final class AlarmRinger {
             dismiss(context);
         } else if (remaining.size() != current.size()) {
             store.saveRinging(remaining);
+            // 通知の内容と読み上げる文を、まだ記録していないお薬だけに直す
+            // （記録が済んだお薬まで「服用してください」と読み上げ続けないように）
+            AlarmSoundService.relink(context);
+            AlarmBanner.refresh(context);
         }
     }
 
@@ -365,6 +382,13 @@ public final class AlarmRinger {
             flags
         );
 
+        PendingIntent dismissed = PendingIntent.getBroadcast(
+            context,
+            13,
+            new Intent(context, AlarmReceiver.class).setAction(ACTION_DISMISSED),
+            flags
+        );
+
         AlarmStore.Schedule first = store.findSchedule(items.get(0).id);
         String title = (first != null ? first.timeText() + "　" : "") + "お薬の時間です";
 
@@ -382,7 +406,9 @@ public final class AlarmRinger {
             .setAutoCancel(false)
             .setTimeoutAfter(AlarmStore.ALARM_WINDOW_MS)
             .setContentIntent(fullScreen)
-            .setDeleteIntent(snooze) // 通知を横に払って消したときは「あとで」と同じにする（音を止め、5 分後にもう一度）
+            // 通知を横に払って消したときは、音を止めて 5 分後にもう一度鳴らす（記録待ち。hold を参照）。
+            // そのあいだにアプリを開けば、アプリの画面のアラームが知らせる
+            .setDeleteIntent(dismissed)
             .addAction(0, "カメラを起動する", camera)
             .addAction(0, "あとで（5分後）", snooze);
         // 全画面インテントがあると、操作中は画面上部に通知が出るため、全画面が見えているあいだは付けない

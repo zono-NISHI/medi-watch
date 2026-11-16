@@ -187,7 +187,7 @@ public class AlarmActivity extends AppCompatActivity {
 
     private void openApp(Intent take) {
         // 音を止める。鳴っていた予定は、記録しないままになったときに備えて 5 分後に鳴らし直す予約にする
-        AlarmRinger.holdForCamera(this);
+        AlarmRinger.hold(this);
         startActivity(take);
         finish();
     }
