@@ -18,12 +18,16 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONObject;
 
 /**
  * Web の画面（public/js/alarm.js の NativeAlarm）から呼ぶ、ネイティブのアラームの窓口。
  *
  * JavaScript からは window.Capacitor.nativePromise('MediAlarm', メソッド名, 引数) で呼び出す。
  * - sync(...)                       … 予定と「今日もう記録した予定」を渡し、アラームを予約し直す
+ * - snooze({ items })               … 画面から「あとで」にする（5 分後にもう一度鳴らす。items は { id, origin: 本来の服薬時刻 }）
  * - clear()                         … ログアウト時に、予約と保存した予定をすべて消す
  * - getStatus()                     … アラームに必要な許可がそろっているか
  * - requestNotificationPermission() … 通知の許可を求める（Android 13 以降）
@@ -48,6 +52,20 @@ public class MediAlarmPlugin extends Plugin {
         store.forgetRemovedSchedules();
         AlarmRinger.removeDone(context); // アプリで記録した予定のアラームを止める
         AlarmScheduler.reschedule(context);
+        call.resolve(status());
+    }
+
+    @PluginMethod
+    public void snooze(PluginCall call) {
+        JSArray arr = call.getArray("items", new JSArray());
+        List<AlarmStore.Item> items = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            String id = o.optString("id", "");
+            if (!id.isEmpty()) items.add(new AlarmStore.Item(id, o.optLong("origin")));
+        }
+        AlarmRinger.snoozeFromApp(getContext(), items);
         call.resolve(status());
     }
 

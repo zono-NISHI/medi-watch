@@ -94,6 +94,12 @@
   justify-content: center;
 }
 
+/* 録画中はボタンが3つ並ぶので、映像の枠を低くして、ボタンまで画面に収まるようにする */
+.take-modal.is-recording .camera-frame {
+  aspect-ratio: auto;
+  height: clamp(180px, 34vh, 360px);
+}
+
 #camera-preview {
   width: 100%; height: 100%;
   object-fit: cover;

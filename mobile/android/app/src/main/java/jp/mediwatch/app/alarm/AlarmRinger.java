@@ -196,6 +196,37 @@ public final class AlarmRinger {
         AlarmScheduler.reschedule(context);
     }
 
+    /**
+     * アプリの画面から「あとで」にする（撮影画面を記録せずに閉じたときなど）。
+     * 「カメラを起動する」を押した時点でアラームは止めてあり、鳴っている予定は残っていないので、
+     * どの予定を鳴らし直すかは画面側から受け取る。まだ鳴っている予定があれば、それも一緒に「あとで」にする。
+     */
+    static void snoozeFromApp(Context context, List<AlarmStore.Item> items) {
+        AlarmStore store = new AlarmStore(context);
+        long now = System.currentTimeMillis();
+        long at = now + AlarmStore.SNOOZE_MS;
+
+        List<AlarmStore.Item> targets = new ArrayList<>(store.ringing());
+        for (AlarmStore.Item item : items) {
+            if (!AlarmScheduler.containsId(targets, item.id)) targets.add(item);
+        }
+
+        org.json.JSONObject snoozes = store.snoozes();
+        for (AlarmStore.Item item : targets) {
+            // 予定に無い・記録済み・服薬時刻から時間が経ちすぎたものは鳴らし直さない
+            if (store.findSchedule(item.id) == null || store.isDoneToday(item.id)) continue;
+            if (item.origin <= 0 || now - item.origin > AlarmStore.ALARM_WINDOW_MS) continue;
+            try {
+                snoozes.put(item.id, new org.json.JSONObject().put("at", at).put("origin", item.origin));
+            } catch (org.json.JSONException ignored) {
+                // put に失敗することはない
+            }
+        }
+        store.saveSnoozes(snoozes);
+        dismiss(context);
+        AlarmScheduler.reschedule(context);
+    }
+
     /** 記録が済んだ予定を、鳴っている予定から外す。全部済んだら止める */
     static void removeDone(Context context) {
         AlarmStore store = new AlarmStore(context);
