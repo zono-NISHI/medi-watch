@@ -62,9 +62,11 @@ import jp.mediwatch.app.R;
  * スキップのボタンも置かず（押し間違えると、家族に「飲み忘れの可能性」と知らせが行くため）、
  * 「カメラを起動する」で開く撮影画面から選べることを 1 行で添える。
  *
- * 画面の上から順に、「いまの時刻 08:20」（小さめ）→「08:00 の」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
+ * 画面の上から順に、「いまの時刻 08:20」（小さめ）→「08:00 に飲む」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
  * 大きな時刻は「飲む予定の時刻」なので、「あとで」のあとなどは、いまの時刻とずれる。
- * 取り違えないよう、予定の時刻は「08:00 の お薬の時間です」と文の中に入れ、いまの時刻は言葉を添えて別に出す。
+ * 取り違えないよう、予定の時刻は「08:00 に飲む お薬の時間です」と文の中に入れ、いまの時刻は言葉を添えて別に出す。
+ * （以前は「08:00 の」だったが、「の」だけでは何の時刻かが伝わりにくいので、「に飲む」と動作を書く。
+ *   「予約された」は、アプリのほかの画面で使っていない言葉で、病院の予約と取り違えやすいので使わない）
  * お薬の名前は、白い地にテラコッタの枠で囲む。見出し（藍色）とお薬の名前（墨色）は、どちらも黒に近い色で、
  * 文字の色だけでは区切りが分からないため（文字を明るい色に変えると、紙色の上で読みにくくなるので、
  * 文字は濃い色のまま、地と枠の色で分ける）。アプリの中のアラームで、お薬ごとの枠に使っているのと同じ色。
@@ -307,7 +309,7 @@ public class AlarmActivity extends AppCompatActivity {
         nowView.setGravity(Gravity.CENTER);
         root.addView(nowView, below(0)); // いちばん上の部品なので、上のあいだは空けない
 
-        // 飲む予定の時刻（「08:00 の」）。下の「お薬の時間です」と続けて読める
+        // 飲む予定の時刻（「08:00 に飲む」）。下の「お薬の時間です」と続けて読める
         timeView = text(48, COLOR_INDIGO_DEEP, SERIF_BOLD);
         root.addView(timeView, below(GAP));
 
@@ -409,9 +411,9 @@ public class AlarmActivity extends AppCompatActivity {
         return camera;
     }
 
-    /** 「08:00 の」… 時刻は大きく、「の」は半分の大きさにする */
+    /** 「08:00 に飲む」… 時刻は大きく、「に飲む」は半分の大きさにする */
     private CharSequence scheduledTimeText(String time) {
-        SpannableString s = new SpannableString(time + " の");
+        SpannableString s = new SpannableString(time + " に飲む");
         s.setSpan(new RelativeSizeSpan(0.5f), time.length(), s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return s;
     }
