@@ -132,9 +132,11 @@ function escapeHtml(str) {
 const UNIT_OPTIONS = ['錠', 'カプセル', '包', 'mL', 'g', '滴', '枚', '本', '個', '吸入', '回'];
 const UNIT_OTHER = '__other__';
 
+// 「選んでください」は、まだ選んでいないときに欄に出す案内だけにする。
+// 選ぶ一覧には出さない（hidden）・選べない（disabled）ので、単位の1つのように見えない
 function unitOptionsHtml() {
   return [
-    '<option value="">選んでください</option>',
+    '<option value="" disabled hidden>選んでください</option>',
     ...UNIT_OPTIONS.map((u) => `<option value="${u}">${u}</option>`),
     `<option value="${UNIT_OTHER}">その他（入力する）</option>`,
   ].join('');
@@ -315,6 +317,21 @@ manualForm.addEventListener('submit', async (e) => {
     return;
   }
 
+  // 服薬時刻は必須にしない（頓服薬など、決まった時刻に飲まないお薬もあるため）。
+  // ただし「×」で全部消したまま気付かずに保存すると、ホームにも出ずアラームも鳴らないので、保存の前に確かめる
+  if (!scheduleRowsEl.querySelector('.schedule-row')) {
+    const ok = confirm(
+      '服薬時刻が1つも入っていません。\n' +
+        'このまま保存すると、このお薬はホーム画面に出ず、お薬の時間のアラームも鳴りません。\n' +
+        '（痛いときだけ飲むお薬など、決まった時刻に飲まないお薬は、このままで大丈夫です）\n\n' +
+        'このまま保存しますか？'
+    );
+    if (!ok) {
+      document.getElementById('add-schedule-row').focus();
+      return;
+    }
+  }
+
   const schedules = [...scheduleRowsEl.querySelectorAll('.schedule-row')].map((row) => ({
     ...(row.dataset.scheduleId ? { id: row.dataset.scheduleId } : {}),
     scheduled_time: row.querySelector('.s-time').value,
@@ -458,7 +475,7 @@ function showQrPreview(medications) {
       (m, i) => `
       <div class="card card--warm">
         <div class="field">
-          <label>薬の名前</label>
+          <label>薬の名前<span class="required-mark">（必須）</span></label>
           <input type="text" class="qr-edit-name" data-index="${i}" value="${escapeHtml(m.name)}" />
         </div>
         <div class="row">

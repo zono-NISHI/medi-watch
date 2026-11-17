@@ -75,7 +75,7 @@
 
       <form id="manual-form" class="stack">
         <div class="field">
-          <label for="m-name">薬の名前</label>
+          <label for="m-name">薬の名前<span class="required-mark">（必須）</span></label>
           <input type="text" id="m-name" required placeholder="例：アムロジピン錠5mg" />
         </div>
         <div class="row">
@@ -96,6 +96,7 @@
         </div>
 
         <h3 style="margin-top: var(--space-2);">服薬スケジュール</h3>
+        <p class="field-hint" style="margin:0">飲む時刻ごとに、アラームでお知らせします。痛いときだけ飲むお薬など、決まった時刻に飲まないお薬は、「×」で時刻を消して保存できます。</p>
         <div id="schedule-rows" class="stack stack--tight"></div>
         <button type="button" class="btn btn-outline btn--sm" id="add-schedule-row" style="width:auto;">+ 時間を追加</button>
 
