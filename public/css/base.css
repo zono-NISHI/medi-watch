@@ -474,6 +474,9 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
   margin: 0;
   width: 100vw;
   height: 100vh;
+  /* スマホのブラウザでは 100vh がアドレスバーなどを除いた画面より高く、いちばん下（「あとで」のボタン）が
+     画面の外に隠れて、スクロールしても見えなくなる。見えている高さ（dvh）に合わせる（対応していないブラウザは上の 100vh） */
+  height: 100dvh;
   max-width: none;
   max-height: none;
   background: var(--color-paper);
@@ -485,6 +488,8 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
   max-width: 560px;
   margin: 0 auto;
   padding: var(--space-4) var(--space-3);
+  /* iPhone などの、画面の下端のホームバーにボタンが重ならないようにする */
+  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -571,6 +576,10 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
 /* 「あとで」は、押せる場所が分かるよう枠で囲む。いちばん目立たせたいのは「カメラを起動する」なので、
    枠と文字は灰色にして、「映像なし」（藍色の枠）より控えめにする */
 .alarm-dialog .btn-ghost { border-color: var(--color-ink-soft); }
+/* 「あとで」の文は長く、スマホの幅では1行に入らない。「（5分後にもう一度お知らせ）」をひとまとまりにして、
+   文の途中で折り返さず、入りきらないときは「あとで」の下の行に出す */
+.alarm-snooze-btn { flex-wrap: wrap; row-gap: 0; padding-inline: 0.8rem; }
+.alarm-snooze-btn span { font-size: var(--fs-sm); }
 
 /* お薬が複数あるとき：お薬ごとに、記録のしかたを選ぶボタンを並べる */
 .alarm-items {
