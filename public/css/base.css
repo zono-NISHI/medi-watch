@@ -450,6 +450,8 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
 /* ============================================================
    服薬アラーム（js/alarm.js）
    画面いっぱいに出し、カメラのボタンを一番大きくする
+   ネイティブ版の端末のアラーム（mobile/android の AlarmActivity.java）も、同じ色・並び・文字の大きさで
+   作っている。ここの見た目を変えたら、そちらも合わせて直す
    ============================================================ */
 .alarm-dialog {
   border: none;

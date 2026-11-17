@@ -1,37 +1,52 @@
 package jp.mediwatch.app.alarm;
 
+import android.animation.Keyframe;
+import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
+import android.animation.ValueAnimator;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.provider.Settings;
 import android.text.SpannableString;
+import android.text.SpannableStringBuilder;
 import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.animation.LinearInterpolator;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextClock;
 import android.widget.TextView;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
+import androidx.core.view.AccessibilityDelegateCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import java.lang.ref.WeakReference;
 import java.util.List;
+import jp.mediwatch.app.R;
 
 /**
  * 服薬時刻に画面いっぱいに出すアラーム画面。
@@ -42,7 +57,14 @@ import java.util.List;
  * - 「あとで（5分後）」 … 音を止め、5 分後にもう一度鳴らす
  * 戻るボタンでは閉じない（どちらかのボタンを押してもらうため）。
  *
- * 画面の上から順に、「いまの時刻 08:20」（小さめ）→「08:00 の」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
+ * 見た目は、アプリの中のアラーム（Web 版。public/js/alarm.js）と同じにする。
+ * 紙色の背景・ベルの印・藍色の文字・テラコッタの「カメラを起動する」で、並び順と文字の大きさも合わせる。
+ * 端末のアラームのあとに、アプリの中のアラームが続けて出ることがあり（同じ時刻のお薬の 2 つ目など）、
+ * 同じ「お薬の時間です」が別のお知らせに見えないようにするため。
+ * ボタンの種類だけは違う。この画面はロック中にも出て、ログインの情報を持たないので、
+ * 「映像なしで記録」やお薬ごとのボタンは置かず、「カメラを起動する」で開く撮影画面から選んでもらう。
+ *
+ * 画面の上から順に、ベルの印 →「いまの時刻 08:20」（小さめ）→「08:00 の」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
  * 大きな時刻は「飲む予定の時刻」なので、「あとで」のあとなどは、いまの時刻とずれる。
  * 取り違えないよう、予定の時刻は「08:00 の お薬の時間です」と文の中に入れ、いまの時刻は言葉を添えて別に出す。
  *
@@ -51,10 +73,18 @@ import java.util.List;
  */
 public class AlarmActivity extends AppCompatActivity {
 
-    // 色は Web 版（public/css/base.css）と合わせる
-    private static final int COLOR_INDIGO = Color.parseColor("#2C4A52");
-    private static final int COLOR_TERRACOTTA = Color.parseColor("#D97D54");
-    private static final int COLOR_PAPER = Color.parseColor("#FBF7F0");
+    // 色は Web 版（public/css/base.css の :root）と合わせる
+    private static final int COLOR_PAPER = Color.parseColor("#FBF7F0"); // 背景（紙の色）
+    private static final int COLOR_INK = Color.parseColor("#33312E"); // お薬の名前
+    private static final int COLOR_INK_SOFT = Color.parseColor("#6B6660"); // いまの時刻・用量・案内文・「あとで」
+    private static final int COLOR_INDIGO_DEEP = Color.parseColor("#1D3338"); // 予定の時刻・「お薬の時間です」
+    private static final int COLOR_TERRACOTTA = Color.parseColor("#D97D54"); // ベルの丸・「カメラを起動する」
+    private static final int COLOR_TERRACOTTA_DEEP = Color.parseColor("#B8623E"); // 「カメラを起動する」を押しているあいだ
+    private static final int COLOR_PRESSED_TINT = Color.argb(15, 44, 74, 82); // 「あとで」を押しているあいだ（藍色の 6%）
+    /** 見出しの書体（Web 版は Noto Serif JP。端末に入っている明朝体で出す） */
+    private static final Typeface SERIF_BOLD = Typeface.create(Typeface.SERIF, Typeface.BOLD);
+    /** 部品どうしの間隔（Web 版の --space-2 = 14px） */
+    private static final int GAP = 14;
 
     private static WeakReference<AlarmActivity> current = new WeakReference<>(null);
     /** この画面がいま見えているか（onStart 〜 onStop のあいだ） */
@@ -67,6 +97,8 @@ public class AlarmActivity extends AppCompatActivity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView timeView;
     private TextView medsView;
+    private ImageView bellView;
+    private ObjectAnimator bellAnimator;
 
     /** 記録が済んだときなどに、開いているアラーム画面を閉じる */
     static void closeIfOpen() {
@@ -83,6 +115,7 @@ public class AlarmActivity extends AppCompatActivity {
         // （アラームの音は「アラーム」の音量で鳴っているため）
         setVolumeControlStream(AudioManager.STREAM_ALARM);
         setContentView(buildLayout());
+        useLightSystemBars();
         hideStatusBar();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -102,11 +135,13 @@ public class AlarmActivity extends AppCompatActivity {
         visible = true;
         // 全画面が見えているあいだは、画面上部に通知を出さない（出ていれば引っ込める）
         AlarmRinger.setFullScreenVisible(this, true);
+        startBell();
     }
 
     @Override
     protected void onStop() {
         visible = false;
+        stopBell();
         // ホームボタンなどで、鳴っているまま全画面を離れたときは、画面上部にも通知を出して気付けるようにする。
         // 画面を消しただけのとき（点けるとこの画面に戻る）と、ボタンを押して閉じるときは、切り替えない。
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -134,12 +169,13 @@ public class AlarmActivity extends AppCompatActivity {
         }
         AlarmStore.Schedule first = store.findSchedule(items.get(0).id);
         timeView.setText(first != null ? scheduledTimeText(first.timeText()) : "");
-        medsView.setText(AlarmRinger.describe(store, items).replace("、", "\n"));
+        medsView.setText(medsText(store, items));
     }
 
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
+        stopBell();
         if (current.get() == this) current = new WeakReference<>(null);
         super.onDestroy();
     }
@@ -154,6 +190,21 @@ public class AlarmActivity extends AppCompatActivity {
             );
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    /**
+     * 背景が明るい紙色なので、下のナビゲーションバー（戻る・ホーム）と、一時的に出るステータスバーの
+     * 地の色を紙色にし、印を濃い色にする（白い印のままだと、紙色の上で見えなくなるため）。
+     * 印を濃い色にできるのは Android 8.0 以上。それより前は、これまでどおり黒いバーに白い印のままにする。
+     */
+    @SuppressWarnings("deprecation") // Android 15 以上では、バーの色は指定しなくても画面の背景が透けて見える
+    private void useLightSystemBars() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        getWindow().setStatusBarColor(COLOR_PAPER);
+        getWindow().setNavigationBarColor(COLOR_PAPER);
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.setAppearanceLightStatusBars(true);
+        controller.setAppearanceLightNavigationBars(true);
     }
 
     /**
@@ -206,75 +257,126 @@ public class AlarmActivity extends AppCompatActivity {
     }
 
     // ---- 画面（XML を使わずにコードで組み立てる） ----
+    // 並び・色・文字の大きさは、Web 版のアラーム（public/js/alarm.js の buildDialog と、public/css/base.css の .alarm-*）に合わせる。
+    // 文字の大きさ（sp）と余白（dp）は、Web 版の px の値をそのまま使う
 
     private View buildLayout() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setBackgroundColor(COLOR_INDIGO);
-        int pad = dp(24);
-        root.setPadding(pad, pad, pad, pad);
+        root.setBackgroundColor(COLOR_PAPER);
+        int padX = dp(20);
+        int padY = dp(28);
+        root.setPadding(padX, padY, padX, padY);
         // 画面の端（ナビゲーションバー・カメラの切り欠き）に文字やボタンが重ならないようにする
         // （ステータスバーは隠しているので、その分の余白は 0 になる）
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-            v.setPadding(pad + bars.left, pad + bars.top, pad + bars.right, pad + bars.bottom);
+            v.setPadding(padX + bars.left, padY + bars.top, padX + bars.right, padY + bars.bottom);
             return WindowInsetsCompat.CONSUMED;
         });
+
+        // ベルの印（テラコッタの丸の中に白いベル。表示しているあいだ、左右に揺れる）
+        bellView = new ImageView(this);
+        bellView.setImageResource(R.drawable.ic_alarm_bell);
+        bellView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        int bellPad = dp(20);
+        bellView.setPadding(bellPad, bellPad, bellPad, bellPad);
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(COLOR_TERRACOTTA);
+        bellView.setBackground(circle);
+        bellView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        root.addView(bellView, new LinearLayout.LayoutParams(dp(96), dp(96)));
 
         // いまの時刻（ステータスバーを隠していて端末の時計が見えないので、ここに出す）。
         // TextClock は、分が変わるたびに自分で表示を更新する。端末の設定が 12 時間制でも、予定の時刻と同じ 24 時間制で出す
         TextClock nowView = new TextClock(this);
         nowView.setFormat12Hour("'いまの時刻' HH:mm");
         nowView.setFormat24Hour("'いまの時刻' HH:mm");
-        nowView.setTextColor(Color.WHITE);
-        nowView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        nowView.setTextColor(COLOR_INK_SOFT);
+        nowView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        nowView.setTypeface(Typeface.DEFAULT_BOLD);
         nowView.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams nowParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        nowParams.bottomMargin = dp(8);
-        root.addView(nowView, nowParams);
+        root.addView(nowView, below(GAP));
 
         // 飲む予定の時刻（「08:00 の」）。下の「お薬の時間です」と続けて読める
-        timeView = text(56, true);
-        root.addView(timeView);
+        timeView = text(48, COLOR_INDIGO_DEEP, SERIF_BOLD);
+        root.addView(timeView, below(GAP));
 
-        TextView title = text(34, true);
+        TextView title = text(30, COLOR_INDIGO_DEEP, SERIF_BOLD);
         title.setText("お薬の時間です");
-        root.addView(title);
+        root.addView(title, below(GAP));
 
-        medsView = text(26, false);
-        LinearLayout.LayoutParams medsParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        medsParams.topMargin = dp(12);
-        root.addView(medsView, medsParams);
+        medsView = text(24, COLOR_INK, Typeface.DEFAULT_BOLD);
+        root.addView(medsView, below(GAP));
 
-        // 「カメラを起動する」は、残りの高さをすべて使う大きなボタンにする
-        Button camera = button("カメラを起動する", 34, COLOR_TERRACOTTA, Color.WHITE);
-        camera.setOnClickListener(v -> onCamera());
+        // 「カメラを起動する」は、残りの高さをすべて使う大きなボタンにする（印の下に文字）
         LinearLayout.LayoutParams cameraParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
-        cameraParams.topMargin = dp(24);
-        cameraParams.bottomMargin = dp(16);
-        camera.setMinHeight(dp(160));
-        root.addView(camera, cameraParams);
+        cameraParams.topMargin = dp(GAP * 2);
+        root.addView(cameraButton(), cameraParams);
 
-        Button snooze = button("あとで（5分後にもう一度お知らせ）", 22, COLOR_PAPER, COLOR_INDIGO);
-        snooze.setOnClickListener(v -> onSnooze());
-        root.addView(snooze, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(72)));
-
-        TextView note = text(17, false);
+        TextView note = text(19, COLOR_INK_SOFT, Typeface.DEFAULT);
         note.setText("映像なしで記録するときや、スキップするときは、「カメラを起動する」を押すと出る画面から選べます。");
-        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
+        root.addView(note, below(GAP));
+
+        // 「あとで」は、Web 版と同じく、枠も地の色も無い控えめなボタンにする（押しているあいだだけ、薄く色が付く）
+        Button snooze = new Button(this);
+        snooze.setText("あとで（5分後にもう一度お知らせ）");
+        snooze.setAllCaps(false);
+        snooze.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        snooze.setTypeface(Typeface.DEFAULT_BOLD);
+        snooze.setTextColor(COLOR_INK_SOFT);
+        snooze.setBackground(pressable(Color.TRANSPARENT, COLOR_PRESSED_TINT, dp(12)));
+        snooze.setStateListAnimator(null); // ボタンの影を出さない
+        snooze.setMinHeight(dp(72));
+        snooze.setPadding(dp(16), dp(12), dp(16), dp(12));
+        snooze.setOnClickListener(v -> onSnooze());
+        root.addView(snooze, below(GAP));
+
+        // 小さい画面・文字を大きくする設定・お薬が多いときに、収まらない分は縦に動かして見られるようにする。
+        // 収まるときは、画面の高さいっぱいに広げ、余った高さを「カメラを起動する」が使う
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(COLOR_PAPER);
+        scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+        return scroll;
+    }
+
+    /** 「カメラを起動する」ボタン（テラコッタの地に、カメラの印と文字を縦に並べる） */
+    private View cameraButton() {
+        LinearLayout camera = new LinearLayout(this);
+        camera.setOrientation(LinearLayout.VERTICAL);
+        camera.setGravity(Gravity.CENTER);
+        camera.setMinimumHeight(dp(140));
+        camera.setBackground(pressable(COLOR_TERRACOTTA, COLOR_TERRACOTTA_DEEP, dp(28)));
+        camera.setElevation(dp(6));
+        camera.setClickable(true);
+        camera.setFocusable(true);
+        camera.setContentDescription("カメラを起動する");
+        camera.setOnClickListener(v -> onCamera());
+        // 画面の読み上げ（TalkBack）に、ボタンとして伝える
+        ViewCompat.setAccessibilityDelegate(camera, new AccessibilityDelegateCompat() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfoCompat info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(Button.class.getName());
+            }
+        });
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_alarm_camera);
+        camera.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+        TextView label = text(30, Color.WHITE, Typeface.DEFAULT_BOLD);
+        label.setText("カメラを起動する");
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         );
-        noteParams.topMargin = dp(12);
-        root.addView(note, noteParams);
-        return root;
+        labelParams.topMargin = dp(8);
+        camera.addView(label, labelParams);
+        return camera;
     }
 
     /** 「08:00 の」… 時刻は大きく、「の」は半分の大きさにする */
@@ -284,27 +386,86 @@ public class AlarmActivity extends AppCompatActivity {
         return s;
     }
 
-    private TextView text(int sp, boolean bold) {
+    /** お薬の一覧（1 行に 1 つ）。名前は大きく、用量は少し小さく薄い色で添える（例: 「ロキソニン 1錠」） */
+    private CharSequence medsText(AlarmStore store, List<AlarmStore.Item> items) {
+        SpannableStringBuilder sb = new SpannableStringBuilder();
+        for (AlarmStore.Item item : items) {
+            AlarmStore.Schedule s = store.findSchedule(item.id);
+            if (s == null) continue;
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(s.name);
+            if (!s.amount.isEmpty()) {
+                int from = sb.length();
+                sb.append(" ").append(s.amount);
+                sb.setSpan(new RelativeSizeSpan(19f / 24f), from, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                sb.setSpan(new ForegroundColorSpan(COLOR_INK_SOFT), from, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
+        return sb.length() > 0 ? sb : "お薬";
+    }
+
+    // ---- ベルを揺らす（Web 版の alarm-ring と同じ動き。1.2 秒ごとに、左右に振れて止まる） ----
+
+    private void startBell() {
+        // 端末の設定で動きを止めている（アニメーションを無効にしている）ときは、揺らさない
+        if (Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) return;
+        if (bellAnimator == null) {
+            PropertyValuesHolder rotation = PropertyValuesHolder.ofKeyframe(
+                View.ROTATION,
+                Keyframe.ofFloat(0f, 0f),
+                Keyframe.ofFloat(0.15f, -14f),
+                Keyframe.ofFloat(0.30f, 12f),
+                Keyframe.ofFloat(0.45f, -8f),
+                Keyframe.ofFloat(0.60f, 0f),
+                Keyframe.ofFloat(1f, 0f)
+            );
+            bellAnimator = ObjectAnimator.ofPropertyValuesHolder(bellView, rotation);
+            bellAnimator.setDuration(1200);
+            bellAnimator.setRepeatCount(ValueAnimator.INFINITE);
+            bellAnimator.setInterpolator(new LinearInterpolator());
+        }
+        if (!bellAnimator.isStarted()) bellAnimator.start();
+    }
+
+    private void stopBell() {
+        if (bellAnimator != null) bellAnimator.cancel();
+        if (bellView != null) bellView.setRotation(0f);
+    }
+
+    // ---- 小物 ----
+
+    /** 上の部品とのあいだを空けて並べる（横幅いっぱい・高さは中身に合わせる） */
+    private LinearLayout.LayoutParams below(int gapDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        lp.topMargin = dp(gapDp);
+        return lp;
+    }
+
+    private TextView text(int sp, int color, Typeface typeface) {
         TextView tv = new TextView(this);
-        tv.setTextColor(Color.WHITE);
+        tv.setTextColor(color);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         tv.setGravity(Gravity.CENTER);
-        if (bold) tv.setTypeface(Typeface.DEFAULT_BOLD);
+        tv.setTypeface(typeface);
         return tv;
     }
 
-    private Button button(String label, int sp, int background, int textColor) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setAllCaps(false);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setTextColor(textColor);
+    /** 角を丸めた地の色。押しているあいだは pressed の色になる */
+    private Drawable pressable(int normal, int pressed, int radius) {
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[] { android.R.attr.state_pressed }, rounded(pressed, radius));
+        states.addState(new int[] {}, rounded(normal, radius));
+        return states;
+    }
+
+    private GradientDrawable rounded(int color, int radius) {
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(background);
-        bg.setCornerRadius(dp(28));
-        b.setBackground(bg);
-        return b;
+        bg.setColor(color);
+        bg.setCornerRadius(radius);
+        return bg;
     }
 
     private int dp(int value) {

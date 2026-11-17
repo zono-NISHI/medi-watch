@@ -52,14 +52,18 @@ final class AlarmStore {
         final int minute;
         final boolean[] days = new boolean[7]; // 0 = 日曜（JavaScript の getDay() と同じ）
         final String label; // 例: 「ロキソニン 1錠」
+        final String name; // 全画面のアラーム用。お薬の名前だけ（例: 「ロキソニン」）
+        final String amount; // 全画面のアラーム用。用量だけ（例: 「1錠」。登録されていなければ空）
         final String speech; // 読み上げ用。例: 「ロキソニンを1錠」（用量が無ければ「ロキソニンを」）
         final long updatedAt; // 予定を最後に登録・変更した時刻（ミリ秒）。分からなければ 0
 
-        Schedule(String id, int hour, int minute, String label, String speech, long updatedAt) {
+        Schedule(String id, int hour, int minute, String label, String name, String amount, String speech, long updatedAt) {
             this.id = id;
             this.hour = hour;
             this.minute = minute;
             this.label = label;
+            this.name = name;
+            this.amount = amount;
             this.speech = speech;
             this.updatedAt = updatedAt;
         }
@@ -117,7 +121,20 @@ final class AlarmStore {
                 // 読み上げ用の文が無い（以前の版の画面が保存した予定）ときは、表示用の名前から作る
                 String speech = o.optString("speech", "");
                 if (speech.isEmpty()) speech = label + "を";
-                Schedule s = new Schedule(id, Integer.parseInt(hm[0]), Integer.parseInt(hm[1]), label, speech, o.optLong("updatedAt", 0));
+                // 名前と用量が分かれていない（以前の版の画面が保存した予定）ときは、表示用の名前をそのまま出す
+                String name = o.optString("name", "");
+                String amount = name.isEmpty() ? "" : o.optString("amount", "");
+                if (name.isEmpty()) name = label;
+                Schedule s = new Schedule(
+                    id,
+                    Integer.parseInt(hm[0]),
+                    Integer.parseInt(hm[1]),
+                    label,
+                    name,
+                    amount,
+                    speech,
+                    o.optLong("updatedAt", 0)
+                );
                 JSONArray days = o.optJSONArray("days");
                 if (days == null || days.length() == 0) {
                     for (int d = 0; d < 7; d++) s.days[d] = true;
