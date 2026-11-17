@@ -1,0 +1,12 @@
+{
+  "name": "medi-watch-thesis-slides",
+  "version": "1.0.0",
+  "private": true,
+  "description": "卒論発表のスライド（.pptx）を作るスクリプト。Render のビルドに影響させないよう、ルートの package.json とは分けている",
+  "scripts": {
+    "build": "node build_slides.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "4.0.1"
+  }
+}
