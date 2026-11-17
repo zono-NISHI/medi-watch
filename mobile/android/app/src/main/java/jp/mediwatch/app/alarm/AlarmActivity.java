@@ -1,9 +1,5 @@
 package jp.mediwatch.app.alarm;
 
-import android.animation.Keyframe;
-import android.animation.ObjectAnimator;
-import android.animation.PropertyValuesHolder;
-import android.animation.ValueAnimator;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
@@ -18,7 +14,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
-import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
@@ -28,7 +23,6 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
-import android.view.animation.LinearInterpolator;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -54,19 +48,25 @@ import jp.mediwatch.app.R;
  *
  * - 「カメラを起動する」… ロックを解除して、アプリのホームで撮影を始める
  *                         （記録しないままになった予定は、5 分後にもう一度鳴らす）
+ * - 「映像なしで「飲んだ」を記録」… ロックを解除して、アプリのホームで映像なしの記録をする
+ *                         （お薬が 2 つ以上のときは、アプリの中の画面でお薬ごとに選んでもらう。onNoVideo を参照）
  * - 「あとで（5分後）」 … 音を止め、5 分後にもう一度鳴らす
- * 戻るボタンでは閉じない（どちらかのボタンを押してもらうため）。
+ * 戻るボタンでは閉じない（いずれかのボタンを押してもらうため）。
  *
  * 見た目は、アプリの中のアラーム（Web 版。public/js/alarm.js）と同じにする。
- * 紙色の背景・ベルの印・藍色の文字・テラコッタの「カメラを起動する」で、並び順と文字の大きさも合わせる。
+ * 紙色の背景・藍色の文字・テラコッタの「カメラを起動する」で、並び順と文字の大きさも合わせる。
  * 端末のアラームのあとに、アプリの中のアラームが続けて出ることがあり（同じ時刻のお薬の 2 つ目など）、
  * 同じ「お薬の時間です」が別のお知らせに見えないようにするため。
- * ボタンの種類だけは違う。この画面はロック中にも出て、ログインの情報を持たないので、
- * 「映像なしで記録」やお薬ごとのボタンは置かず、「カメラを起動する」で開く撮影画面から選んでもらう。
+ * ボタンの並び（カメラ → 映像なし → あとで）も同じ。ただし、この画面はロック中にも出て、ログインの情報を持たないので、
+ * 自分ではサーバーに記録しない。「映像なし」はアプリを開いて記録してもらい、お薬ごとのボタンは置かない。
+ * スキップのボタンも置かず（押し間違えると、家族に「飲み忘れの可能性」と知らせが行くため）、
+ * 「カメラを起動する」で開く撮影画面から選べることを 1 行で添える。
  *
- * 画面の上から順に、ベルの印 →「いまの時刻 08:20」（小さめ）→「08:00 の」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
+ * 画面の上から順に、「いまの時刻 08:20」（小さめ）→「08:00 の」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
  * 大きな時刻は「飲む予定の時刻」なので、「あとで」のあとなどは、いまの時刻とずれる。
  * 取り違えないよう、予定の時刻は「08:00 の お薬の時間です」と文の中に入れ、いまの時刻は言葉を添えて別に出す。
+ * 以前はいちばん上に揺れるベルの印を置いていたが、その分（約 110dp）だけ「カメラを起動する」が小さくなるので外した
+ * （何の知らせかは「お薬の時間です」の文字と、音・読み上げで伝わる。Web 版からも外してある）。
  *
  * 表示中は、画面上部のステータスバー（時計・電池など）を隠し、画面いっぱいを使う。
  * 見えている・見えなくなったことは AlarmRinger に伝え、通知の出し方（画面上部に出すか）を切り替える。
@@ -77,8 +77,9 @@ public class AlarmActivity extends AppCompatActivity {
     private static final int COLOR_PAPER = Color.parseColor("#FBF7F0"); // 背景（紙の色）
     private static final int COLOR_INK = Color.parseColor("#33312E"); // お薬の名前
     private static final int COLOR_INK_SOFT = Color.parseColor("#6B6660"); // いまの時刻・用量・案内文・「あとで」
+    private static final int COLOR_INDIGO = Color.parseColor("#2C4A52"); // 「映像なしで「飲んだ」を記録」の枠と文字
     private static final int COLOR_INDIGO_DEEP = Color.parseColor("#1D3338"); // 予定の時刻・「お薬の時間です」
-    private static final int COLOR_TERRACOTTA = Color.parseColor("#D97D54"); // ベルの丸・「カメラを起動する」
+    private static final int COLOR_TERRACOTTA = Color.parseColor("#D97D54"); // 「カメラを起動する」
     private static final int COLOR_TERRACOTTA_DEEP = Color.parseColor("#B8623E"); // 「カメラを起動する」を押しているあいだ
     private static final int COLOR_PRESSED_TINT = Color.argb(15, 44, 74, 82); // 「あとで」を押しているあいだ（藍色の 6%）
     /** 見出しの書体（Web 版は Noto Serif JP。端末に入っている明朝体で出す） */
@@ -97,8 +98,6 @@ public class AlarmActivity extends AppCompatActivity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView timeView;
     private TextView medsView;
-    private ImageView bellView;
-    private ObjectAnimator bellAnimator;
 
     /** 記録が済んだときなどに、開いているアラーム画面を閉じる */
     static void closeIfOpen() {
@@ -135,13 +134,11 @@ public class AlarmActivity extends AppCompatActivity {
         visible = true;
         // 全画面が見えているあいだは、画面上部に通知を出さない（出ていれば引っ込める）
         AlarmRinger.setFullScreenVisible(this, true);
-        startBell();
     }
 
     @Override
     protected void onStop() {
         visible = false;
-        stopBell();
         // ホームボタンなどで、鳴っているまま全画面を離れたときは、画面上部にも通知を出して気付けるようにする。
         // 画面を消しただけのとき（点けるとこの画面に戻る）と、ボタンを押して閉じるときは、切り替えない。
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -175,7 +172,6 @@ public class AlarmActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         handler.removeCallbacksAndMessages(null);
-        stopBell();
         if (current.get() == this) current = new WeakReference<>(null);
         super.onDestroy();
     }
@@ -223,31 +219,50 @@ public class AlarmActivity extends AppCompatActivity {
             finish();
             return;
         }
-        Intent take = AlarmRinger.takeIntent(this, id);
+        afterUnlock(() -> openApp(AlarmRinger.takeIntent(this, id)));
+    }
 
-        // ロック中なら、先に解除してもらってからアプリを開く
+    /**
+     * 「映像なしで「飲んだ」を記録」… ロックを解除して、アプリのホームで記録する。
+     * この画面はログインの情報を持たないので、記録はアプリの画面（public/js/pages/home.js）に任せる。
+     * - お薬が 1 つ   … そのお薬を、映像なしで記録する
+     * - お薬が 2 つ以上 … アプリを開き、アプリの中の「お薬の時間です」の画面で、飲んだお薬を 1 つずつ選んでもらう
+     */
+    private void onNoVideo() {
+        List<AlarmStore.Item> ringing = new AlarmStore(this).ringing();
+        if (ringing.isEmpty()) {
+            finish();
+            return;
+        }
+        String id = ringing.size() == 1 ? ringing.get(0).id : null;
+        // 開く画面は、ロックを解除したあとで作る（記録を頼んだ時刻を入れるため。AlarmRinger.EXTRA_RECORD_AT）
+        afterUnlock(() -> openApp(id != null ? AlarmRinger.recordIntent(this, id) : AlarmRinger.chooseIntent(this)));
+    }
+
+    /** ロック中なら、先に解除してもらってから続ける。解除をやめた場合は、このアラーム画面のまま鳴らし続ける */
+    private void afterUnlock(Runnable next) {
         KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && km != null && km.isKeyguardLocked()) {
             km.requestDismissKeyguard(this, new KeyguardManager.KeyguardDismissCallback() {
                 @Override
                 public void onDismissSucceeded() {
-                    openApp(take);
+                    next.run();
                 }
 
                 @Override
                 public void onDismissCancelled() {
-                    // 解除をやめた場合は、このアラーム画面のまま鳴らし続ける
+                    // 何もしない
                 }
             });
         } else {
-            openApp(take);
+            next.run();
         }
     }
 
-    private void openApp(Intent take) {
+    private void openApp(Intent app) {
         // 音を止める。鳴っていた予定は、記録しないままになったときに備えて 5 分後に鳴らし直す予約にする
         AlarmRinger.hold(this);
-        startActivity(take);
+        startActivity(app);
         finish();
     }
 
@@ -276,19 +291,6 @@ public class AlarmActivity extends AppCompatActivity {
             return WindowInsetsCompat.CONSUMED;
         });
 
-        // ベルの印（テラコッタの丸の中に白いベル。表示しているあいだ、左右に揺れる）
-        bellView = new ImageView(this);
-        bellView.setImageResource(R.drawable.ic_alarm_bell);
-        bellView.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        int bellPad = dp(20);
-        bellView.setPadding(bellPad, bellPad, bellPad, bellPad);
-        GradientDrawable circle = new GradientDrawable();
-        circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(COLOR_TERRACOTTA);
-        bellView.setBackground(circle);
-        bellView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        root.addView(bellView, new LinearLayout.LayoutParams(dp(96), dp(96)));
-
         // いまの時刻（ステータスバーを隠していて端末の時計が見えないので、ここに出す）。
         // TextClock は、分が変わるたびに自分で表示を更新する。端末の設定が 12 時間制でも、予定の時刻と同じ 24 時間制で出す
         TextClock nowView = new TextClock(this);
@@ -298,7 +300,7 @@ public class AlarmActivity extends AppCompatActivity {
         nowView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
         nowView.setTypeface(Typeface.DEFAULT_BOLD);
         nowView.setGravity(Gravity.CENTER);
-        root.addView(nowView, below(GAP));
+        root.addView(nowView, below(0)); // いちばん上の部品なので、上のあいだは空けない
 
         // 飲む予定の時刻（「08:00 の」）。下の「お薬の時間です」と続けて読める
         timeView = text(48, COLOR_INDIGO_DEEP, SERIF_BOLD);
@@ -316,8 +318,24 @@ public class AlarmActivity extends AppCompatActivity {
         cameraParams.topMargin = dp(GAP * 2);
         root.addView(cameraButton(), cameraParams);
 
+        // 「映像なしで「飲んだ」を記録」は、Web 版と同じく、藍色の枠だけのボタンにする（.btn-outline）
+        Button noVideo = new Button(this);
+        noVideo.setText("映像なしで「飲んだ」を記録");
+        noVideo.setAllCaps(false);
+        noVideo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        noVideo.setTypeface(Typeface.DEFAULT_BOLD);
+        noVideo.setTextColor(COLOR_INDIGO);
+        noVideo.setBackground(outlined());
+        noVideo.setStateListAnimator(null); // ボタンの影を出さない
+        noVideo.setMinHeight(dp(64));
+        noVideo.setPadding(dp(12), dp(12), dp(12), dp(12));
+        noVideo.setOnClickListener(v -> onNoVideo());
+        root.addView(noVideo, below(GAP));
+
+        // スキップのボタンは、この画面には置かない（1 回押しただけで、家族に「飲み忘れの可能性」と知らせが行くため）。
+        // どこで選べるかだけを、短く添える
         TextView note = text(19, COLOR_INK_SOFT, Typeface.DEFAULT);
-        note.setText("映像なしで記録するときや、スキップするときは、「カメラを起動する」を押すと出る画面から選べます。");
+        note.setText("飲まないときは、「カメラを起動する」の先で選べます。");
         root.addView(note, below(GAP));
 
         // 「あとで」は、Web 版と同じく、枠も地の色も無い控えめなボタンにする（押しているあいだだけ、薄く色が付く）
@@ -404,34 +422,6 @@ public class AlarmActivity extends AppCompatActivity {
         return sb.length() > 0 ? sb : "お薬";
     }
 
-    // ---- ベルを揺らす（Web 版の alarm-ring と同じ動き。1.2 秒ごとに、左右に振れて止まる） ----
-
-    private void startBell() {
-        // 端末の設定で動きを止めている（アニメーションを無効にしている）ときは、揺らさない
-        if (Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f) return;
-        if (bellAnimator == null) {
-            PropertyValuesHolder rotation = PropertyValuesHolder.ofKeyframe(
-                View.ROTATION,
-                Keyframe.ofFloat(0f, 0f),
-                Keyframe.ofFloat(0.15f, -14f),
-                Keyframe.ofFloat(0.30f, 12f),
-                Keyframe.ofFloat(0.45f, -8f),
-                Keyframe.ofFloat(0.60f, 0f),
-                Keyframe.ofFloat(1f, 0f)
-            );
-            bellAnimator = ObjectAnimator.ofPropertyValuesHolder(bellView, rotation);
-            bellAnimator.setDuration(1200);
-            bellAnimator.setRepeatCount(ValueAnimator.INFINITE);
-            bellAnimator.setInterpolator(new LinearInterpolator());
-        }
-        if (!bellAnimator.isStarted()) bellAnimator.start();
-    }
-
-    private void stopBell() {
-        if (bellAnimator != null) bellAnimator.cancel();
-        if (bellView != null) bellView.setRotation(0f);
-    }
-
     // ---- 小物 ----
 
     /** 上の部品とのあいだを空けて並べる（横幅いっぱい・高さは中身に合わせる） */
@@ -458,6 +448,17 @@ public class AlarmActivity extends AppCompatActivity {
         StateListDrawable states = new StateListDrawable();
         states.addState(new int[] { android.R.attr.state_pressed }, rounded(pressed, radius));
         states.addState(new int[] {}, rounded(normal, radius));
+        return states;
+    }
+
+    /** 藍色の枠だけのボタンの地（Web 版の .btn-outline）。押しているあいだは、中に薄く色が付く */
+    private Drawable outlined() {
+        StateListDrawable states = new StateListDrawable();
+        for (int pressed = 1; pressed >= 0; pressed--) {
+            GradientDrawable bg = rounded(pressed == 1 ? COLOR_PRESSED_TINT : Color.TRANSPARENT, dp(12));
+            bg.setStroke(dp(2), COLOR_INDIGO);
+            states.addState(pressed == 1 ? new int[] { android.R.attr.state_pressed } : new int[] {}, bg);
+        }
         return states;
     }
 
