@@ -296,6 +296,7 @@ const MedAlarm = (() => {
   let shownKey = ''; // いま画面に描いているお薬（予定の id をつないだもの）
   let nowTimer = null; // 画面の「いまの時刻」を進めるタイマー
   let audioCtx = null;
+  let audioPausedForSpeech = false; // 読み上げのために audioCtx を止めているか
   let soundTimer = null;
   let voiceOnly = false; // ネイティブ版で、端末の読み上げだけで知らせているか（startSound で決める）
   let speechTimer = null; // 次の読み上げを待つタイマー（ブラウザ版）
@@ -601,7 +602,24 @@ const MedAlarm = (() => {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     if (!audioCtx) audioCtx = new AC();
-    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    // 読み上げのために止めているあいだは、画面に触れても動かさない（読み終わったら resumeAudioAfterSpeech で戻す）
+    if (audioCtx.state === 'suspended' && !audioPausedForSpeech) audioCtx.resume().catch(() => {});
+  }
+
+  // 読み上げているあいだは、チャイム用の音の出口（Web Audio）を止めておく。
+  // 鳴らす音が無くても、開いたままだとスマホのブラウザでは読み上げの声に雑音が入ることがあるため
+  // （ネイティブ版は同じ端末の読み上げ機能でも雑音が入らず、違いはブラウザ版だけがこれを開いたままにしていたこと）
+  function pauseAudioForSpeech() {
+    if (!audioCtx || audioCtx.state !== 'running') return Promise.resolve();
+    audioPausedForSpeech = true;
+    return audioCtx.suspend().catch(() => {});
+  }
+
+  function resumeAudioAfterSpeech() {
+    if (!audioPausedForSpeech) return;
+    audioPausedForSpeech = false;
+    // 戻せなかった端末では、次のチャイムのときに「画面に一度触れてください」の案内が出て、触れれば鳴り始める
+    audioCtx?.resume().catch(() => {});
   }
 
   // 知らせ方は 2 通り
@@ -722,23 +740,28 @@ const MedAlarm = (() => {
       if (finishSpeech === finish) finishSpeech = null;
       currentUtterance = null;
       speaking = false;
+      resumeAudioAfterSpeech();
       if (again && soundTimer && !voiceOnly) scheduleSpeech(SPEECH_GAP_MS);
     }
     finishSpeech = finish;
     speaking = true;
     try { navigator.vibrate?.(0); } catch { /* noop */ } // 鳴っている振動も止める
-    try {
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'ja-JP';
-      utter.rate = SPEECH_RATE;
-      utter.onend = () => finish(true);
-      utter.onerror = () => finish(true);
-      currentUtterance = utter;
-      speechSynthesis.speak(utter);
-    } catch (err) {
-      console.warn('[alarm] 読み上げに失敗しました:', err);
-      finish(true);
-    }
+    // 音の出口を止め終わってから読み上げ始める
+    pauseAudioForSpeech().then(() => {
+      if (done) return; // 止め終わるまでのあいだに、アラームを閉じた
+      try {
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = 'ja-JP';
+        utter.rate = SPEECH_RATE;
+        utter.onend = () => finish(true);
+        utter.onerror = () => finish(true);
+        currentUtterance = utter;
+        speechSynthesis.speak(utter);
+      } catch (err) {
+        console.warn('[alarm] 読み上げに失敗しました:', err);
+        finish(true);
+      }
+    });
   }
 
   // ---- 鳴っているあいだは画面を消さない ----
