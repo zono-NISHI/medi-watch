@@ -165,6 +165,17 @@ function getUnitValue(picker) {
   return select.value === UNIT_OTHER ? picker.querySelector('.unit-other').value.trim() : select.value;
 }
 
+// 用量は数（0.5 などの小数も可）だけにする。「1錠」のように単位まで書くと、単位の欄と二重になり、
+// 読み上げが「1錠錠」になるため。決まった量の無い塗り薬などは「1 回」とし、量はメモに書いてもらう
+// （サーバーの src/routes/medications.js でも同じ決まりで確かめる）
+function normalizeDosage(value) {
+  return String(value ?? '').normalize('NFKC').trim();
+}
+
+function isValidDosage(value) {
+  return /^\d+(\.\d+)?$/.test(value) && Number(value) > 0;
+}
+
 // 用量・単位は必須。空の欄があれば、お知らせを出してその欄へ移り、false を返す
 // （読み上げ・アラーム・家族が見る記録で「何をどれだけ飲むか」が伝わるようにするため。サーバーでも確かめる）
 // medName: 複数のお薬を一度に登録するとき（QRコード）に、どのお薬の欄かを示す
@@ -172,10 +183,15 @@ function checkAmountFilled(dosageInput, picker, medName) {
   const who = medName ? `「${medName}」の` : '';
   const select = picker.querySelector('.unit-select');
   const other = picker.querySelector('.unit-other');
+  // 全角で入力した数字（「１」「０．５」）は半角にそろえて、欄にも書き戻す
+  dosageInput.value = normalizeDosage(dosageInput.value);
   let message = null;
   let target = null;
-  if (!dosageInput.value.trim()) {
-    message = `${who}用量を入力してください。（例：1、適量）`;
+  if (!dosageInput.value) {
+    message = `${who}用量を数字で入力してください。（例：1、0.5）`;
+    target = dosageInput;
+  } else if (!isValidDosage(dosageInput.value)) {
+    message = `${who}用量は数字だけで入力してください。（例：1、0.5）「錠」などは「単位」の欄で選びます。`;
     target = dosageInput;
   } else if (!select.value) {
     message = `${who}単位を選んでください。一覧に無いときは「その他（入力する）」を選んでください。`;
@@ -302,7 +318,7 @@ manualForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const payload = {
     name: document.getElementById('m-name').value.trim(),
-    dosage: document.getElementById('m-dosage').value.trim(),
+    dosage: normalizeDosage(document.getElementById('m-dosage').value),
     unit: getUnitValue(document.getElementById('m-unit-picker')),
     notes: document.getElementById('m-notes').value.trim(),
   };
@@ -478,12 +494,12 @@ function showQrPreview(medications) {
           <label>薬の名前<span class="required-mark">（必須）</span></label>
           <input type="text" class="qr-edit-name" data-index="${i}" value="${escapeHtml(m.name)}" />
         </div>
-        <div class="row">
-          <div class="field" style="flex:1">
+        <div class="amount-row">
+          <div class="field">
             <label>用量<span class="required-mark">（必須）</span></label>
-            <input type="text" class="qr-edit-dosage" data-index="${i}" value="${escapeHtml(m.dosage || '')}" />
+            <input type="text" class="qr-edit-dosage" inputmode="decimal" autocomplete="off" placeholder="例：1" data-index="${i}" value="${escapeHtml(m.dosage || '')}" />
           </div>
-          <div class="field unit-picker" style="flex:1" data-unit="${escapeHtml(m.unit || '')}">
+          <div class="field unit-picker" data-unit="${escapeHtml(m.unit || '')}">
             <label>単位<span class="required-mark">（必須）</span></label>
             <select class="unit-select" aria-label="単位"></select>
             <input type="text" class="unit-other" placeholder="単位を入力" aria-label="単位（その他）" hidden />
@@ -516,7 +532,7 @@ document.getElementById('qr-confirm-btn').addEventListener('click', async () => 
   }
   const medications = rows.map((row, i) => ({
     name: row.querySelector('.qr-edit-name').value.trim(),
-    dosage: row.querySelector('.qr-edit-dosage').value.trim(),
+    dosage: normalizeDosage(row.querySelector('.qr-edit-dosage').value),
     unit: getUnitValue(row.querySelector('.unit-picker')),
     notes: row.querySelector('.qr-edit-notes').value.trim(),
   }));

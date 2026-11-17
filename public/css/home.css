@@ -92,18 +92,7 @@
   position: relative;
 }
 
-.modal-close {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  width: 44px; height: 44px;
-  border-radius: 50%;
-  border: none;
-  background: var(--color-paper-warm);
-  font-size: 1.4rem;
-  cursor: pointer;
-  color: var(--color-ink-soft);
-}
+/* 「×」のボタン（.modal-close）は base.css に移した（お薬の画面でも使うため） */
 
 .camera-frame {
   position: relative;
