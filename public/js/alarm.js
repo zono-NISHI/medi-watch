@@ -88,6 +88,9 @@ const NativeAlarm = (() => {
           time: String(s.scheduled_time).slice(0, 5),
           days: s.days_of_week || [0, 1, 2, 3, 4, 5, 6],
           label: medLabel(s),
+          // 端末の全画面のアラームが、この画面と同じように「名前（大きく）＋用量（小さく）」で出すために分けて渡す
+          name: s.medications?.name || 'お薬',
+          amount: `${s.medications?.dosage || ''}${s.medications?.unit || ''}`,
           speech: medSpeechPhrase(s.medications), // 端末のアラームが読み上げる「○○を3錠」
           // 電源を入れ直したあとに鳴らし直すとき、時刻を過ぎてから登録・変更した予定を除くために渡す
           updatedAt: s.updated_at ? new Date(s.updated_at).getTime() : 0,

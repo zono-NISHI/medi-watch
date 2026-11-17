@@ -46,7 +46,9 @@ import java.util.List;
 final class AlarmBanner {
 
     private static final String TAG = "MediAlarm";
-    // 色は全画面のアラーム（AlarmActivity）と合わせる
+    // 色は Web 版（public/css/base.css）の藍色・テラコッタ・紙色を使う。
+    // 全画面のアラーム（AlarmActivity）は紙色の背景だが、帯はほかのアプリの画面の上に重ねて出すので、
+    // どんな画面の上でも見分けられるよう、濃い藍色の地のままにする
     private static final int COLOR_INDIGO = Color.parseColor("#2C4A52");
     private static final int COLOR_TERRACOTTA = Color.parseColor("#D97D54");
     private static final int COLOR_PAPER = Color.parseColor("#FBF7F0");
