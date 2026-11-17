@@ -87,7 +87,7 @@ Java（`android/app/src/main/java/` の中）・`AndroidManifest.xml`・`res/` �
 
 ## パソコン・スマホを変えたとき
 
-Git に入っていないもの（`node_modules/`、`android/app/src/main/assets/public/` などの `npx cap sync` で作られるファイル、Android Studio の設定 `.idea/gradle.xml`、`local.properties`）は、パソコンごとに作り直す必要がある。また、USB デバッグの許可は「パソコンとスマホの組み合わせ」ごと、アラームの権限はスマホごとに必要になる。
+Git に入っていないもの（`node_modules/`、`android/app/src/main/assets/public/` などの `npx cap sync` で作られるファイル、Android Studio の設定 `.idea/`、`local.properties`）は、パソコンごとに作り直す必要がある。また、USB デバッグの許可は「パソコンとスマホの組み合わせ」ごと、アラームの権限はスマホごとに必要になる。
 
 | 手順 | 違うパソコン | 違うスマホ（同じパソコン） | 同じパソコン・同じスマホで続きの作業 |
 |---|---|---|---|
