@@ -57,6 +57,7 @@ final class AlarmBanner {
     private static View view;
     private static TextView titleView;
     private static TextView medsView;
+    private static Button snoozeView;
     private static BroadcastReceiver screenOnReceiver;
 
     private AlarmBanner() {}
@@ -113,6 +114,7 @@ final class AlarmBanner {
                 Log.w(TAG, "画面上部の帯を出せませんでした（代わりに通知を画面上部に出します）", e);
                 titleView = null;
                 medsView = null;
+                snoozeView = null;
                 AlarmRinger.showHeadsUpInstead(app);
                 return;
             }
@@ -121,9 +123,11 @@ final class AlarmBanner {
             Log.i(TAG, "画面上部に「お薬の時間です」の帯を出しました");
         }
 
-        AlarmStore.Schedule first = store.findSchedule(items.get(0).id);
-        titleView.setText((first != null ? first.timeText() + "　" : "") + "お薬の時間です");
+        AlarmStore.Schedule latest = AlarmRinger.latestSchedule(store, items);
+        titleView.setText((latest != null ? latest.timeText() + "　" : "") + "お薬の時間です");
         medsView.setText(AlarmRinger.describe(store, items));
+        // お薬が 2 つ以上なら「あとで（2つとも5分後）」と、どれも「あとで」になることを書く
+        snoozeView.setText(AlarmRinger.snoozeLabel(items.size(), false));
     }
 
     /**
@@ -176,6 +180,7 @@ final class AlarmBanner {
         view = null;
         titleView = null;
         medsView = null;
+        snoozeView = null;
     }
 
     @SuppressWarnings("deprecation")
@@ -229,13 +234,17 @@ final class AlarmBanner {
         );
         rowParams.topMargin = dp(app, 12);
 
+        // 高さは 64dp 以上にし、「あとで（2つとも5分後）」が 2 行になっても欠けないよう、中身に合わせて伸ばす
         Button open = button(app, "アラームを開く", COLOR_TERRACOTTA, Color.WHITE);
+        open.setMinHeight(dp(app, 64));
         open.setOnClickListener(v -> openFullScreen(app));
-        row.addView(open, new LinearLayout.LayoutParams(0, dp(app, 64), 1f));
+        row.addView(open, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
 
-        Button snooze = button(app, "あとで（5分後）", COLOR_PAPER, COLOR_INDIGO);
+        Button snooze = button(app, AlarmRinger.snoozeLabel(1, false), COLOR_PAPER, COLOR_INDIGO);
+        snooze.setMinHeight(dp(app, 64));
         snooze.setOnClickListener(v -> AlarmRinger.snooze(app));
-        LinearLayout.LayoutParams snoozeParams = new LinearLayout.LayoutParams(0, dp(app, 64), 1f);
+        snoozeView = snooze;
+        LinearLayout.LayoutParams snoozeParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         snoozeParams.leftMargin = dp(app, 12);
         row.addView(snooze, snoozeParams);
 

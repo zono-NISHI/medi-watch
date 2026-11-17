@@ -40,6 +40,12 @@ import jp.mediwatch.app.MainActivity;
  *   - それ以外（画面が消えている・ロック中・全画面を開けない・ホームボタンなどで全画面を離れた）
  *     … これまでどおり、重要度「高」＋全画面インテントの通知（CHANNEL_ID）。
  *   全画面を直接開いたつもりでも開けなかったときは、少し待ってから「高」の通知に出し直す。
+ * - アプリの画面で知らせていたお薬を記録しないままアプリを離れたら、数秒後に引き継いで鳴らす（onAppHidden）。
+ *   このときは全画面を開かず、全画面を離れたときと同じく、音と画面上部の帯で知らせる。アプリに戻ったら止める（onAppShown）。
+ * - 「あとで」にしたあいだは、通知欄に「08:25 に、もう一度お知らせします」と出し、どのお薬をいつ知らせるかが分かるようにする
+ *   （updateSnoozeNotice）。
+ * - お薬が 2 つ以上のとき、「カメラを起動する」は、鳴っているお薬すべてを 1 回の撮影でまとめて記録する画面を開く
+ *   （記録するお薬は、アプリの撮影画面でチェックして選ぶ）。
  */
 public final class AlarmRinger {
 
@@ -47,6 +53,10 @@ public final class AlarmRinger {
     static final String CHANNEL_ID = "medication_alarm_v2";
     /** 全画面が見えているあいだに使う、画面上部に出ない（ヘッズアップにならない）通知のチャンネル */
     static final String QUIET_CHANNEL_ID = "medication_alarm_quiet_v1";
+    /** 「あとで」にしたあいだ、通知欄に「08:25 に、もう一度お知らせします」と出すチャンネル（音なし・画面上部に出ない） */
+    static final String SNOOZED_CHANNEL_ID = "medication_alarm_snoozed_v1";
+    /** 「あとで」にしたあいだの通知の番号 */
+    static final int SNOOZE_NOTICE_ID = 1003;
     /** 以前の、通知の音で鳴らしていたチャンネル（チャンネルの音の設定は後から変えられないため、作り直した） */
     private static final String OLD_CHANNEL_ID = "medication_alarm_v1";
     static final int NOTIFICATION_ID = 1001;
@@ -78,8 +88,12 @@ public final class AlarmRinger {
 
     private AlarmRinger() {}
 
-    /** 鳴らす（すでに鳴っている予定があれば、まとめて知らせる） */
-    static void ring(Context context, List<AlarmStore.Item> due) {
+    /**
+     * 鳴らす（すでに鳴っている予定があれば、まとめて知らせる）。
+     * openScreen … true: 全画面を開く（服薬時刻・「あとで」の 5 分後など）
+     *               false: 全画面は開かず、音と画面上部の帯で知らせる（アプリを離れたときの引き継ぎ。onAppHidden）
+     */
+    static void ring(Context context, List<AlarmStore.Item> due, boolean openScreen) {
         AlarmStore store = new AlarmStore(context);
         long now = System.currentTimeMillis();
 
@@ -95,6 +109,16 @@ public final class AlarmRinger {
         AlarmAnnouncer.stop(); // 画面のアラームが読み上げていたら止める（ここからは、アラームの音と読み上げで知らせる）
 
         ensureChannel(context);
+        if (!openScreen) {
+            // 引き継ぎ：アプリを離れた先の画面（ホーム・ほかのアプリ）の上に、帯と音で知らせる（全画面を離れたときと同じ知らせ方）。
+            // 帯を出せない（画面が消えている・ロック中・許可が無い）ときは、通知を画面上部に出る版（全画面インテントつき）にする。
+            // 画面が消えている・ロック中なら、その全画面インテントで全画面のアラームが出る
+            boolean banner = AlarmBanner.canShow(context) && !AlarmActivity.isVisible();
+            post(context, store, items, banner || AlarmActivity.isVisible());
+            AlarmSoundService.start(context);
+            if (banner) AlarmBanner.show(context);
+            return;
+        }
         // 全画面をそのまま開ける（または、もう開いている）なら、画面上部に出ない通知にする
         post(context, store, items, canShowFullScreenDirectly(context) || AlarmActivity.isVisible());
         AlarmSoundService.start(context); // 音と振動（止めるまで繰り返す）
@@ -209,15 +233,20 @@ public final class AlarmRinger {
     /** 止める（記録が済んだとき・ログアウトしたときなど。鳴らし直す予約は、呼ぶ側が必要に応じて入れる） */
     public static void dismiss(Context context) {
         handler.removeCallbacksAndMessages(null);
-        new AlarmStore(context).saveRinging(new ArrayList<>());
+        AlarmStore store = new AlarmStore(context);
+        store.saveRinging(new ArrayList<>());
+        store.setHandoffRinging(false);
         AlarmSoundService.stop(context);
         cancelNotifications(context);
         AlarmBanner.hide();
         AlarmActivity.closeIfOpen();
     }
 
-    /** 「あとで」… いま鳴っている予定を 5 分後にもう一度鳴らす */
-    static void snooze(Context context) {
+    /**
+     * 「あとで」… いま鳴っている予定（画面に出ているお薬すべて）を 5 分後にもう一度鳴らす。
+     * もう一度鳴らす時刻を返す（全画面の確認の表示に使う）
+     */
+    static long snooze(Context context) {
         AlarmStore store = new AlarmStore(context);
         long at = System.currentTimeMillis() + AlarmStore.SNOOZE_MS;
         org.json.JSONObject snoozes = store.snoozes();
@@ -225,6 +254,8 @@ public final class AlarmRinger {
         store.saveSnoozes(snoozes);
         dismiss(context);
         AlarmScheduler.reschedule(context);
+        updateSnoozeNotice(context);
+        return at;
     }
 
     /**
@@ -296,6 +327,134 @@ public final class AlarmRinger {
         store.saveSnoozes(snoozes);
         dismiss(context);
         AlarmScheduler.reschedule(context);
+        updateSnoozeNotice(context);
+    }
+
+    /**
+     * アプリ（MainActivity）が見えなくなったとき（ホームに戻る・ほかのアプリを開く・画面を消す）。
+     * アプリの画面で知らせていた（撮影画面で記録しようとしていた）お薬が、記録しないまま残っていれば、
+     * 数秒後に端末のアラームが引き継いで鳴らす。アプリの画面は、裏に回ると声で知らせられないため
+     * （以前は、5 分後の鳴らし直しまで、音も通知も出なかった）。
+     * 「あとで」にしたお薬・記録が済んだお薬・もう鳴っているときは何もしない。
+     */
+    public static void onAppHidden(Context context) {
+        AlarmStore store = new AlarmStore(context);
+        if (!store.ringing().isEmpty()) return; // もう鳴っている（全画面のアラームがアプリの上に開いた など）
+        List<AlarmStore.Item> items = store.appAlarm();
+        if (items.isEmpty()) return;
+
+        long now = System.currentTimeMillis();
+        long at = now + AlarmStore.HANDOFF_DELAY_MS;
+        org.json.JSONObject snoozes = store.snoozes();
+        boolean any = false;
+        for (AlarmStore.Item item : items) {
+            if (store.findSchedule(item.id) == null || store.isDoneToday(item.id)) continue;
+            if (item.origin <= 0 || now - item.origin > AlarmStore.ALARM_WINDOW_MS) continue;
+            org.json.JSONObject current = snoozes.optJSONObject(item.id);
+            boolean userSnoozed = current != null
+                && !current.optBoolean(AlarmStore.SNOOZE_HOLD, false)
+                && current.optLong("at") > now;
+            if (userSnoozed) continue; // 「あとで」にしたお薬は、その時刻まで鳴らさない
+            try {
+                snoozes.put(
+                    item.id,
+                    new org.json.JSONObject()
+                        .put("at", at)
+                        .put("origin", item.origin)
+                        .put(AlarmStore.SNOOZE_HOLD, true)
+                        .put(AlarmStore.SNOOZE_HANDOFF, true)
+                );
+                any = true;
+            } catch (org.json.JSONException ignored) {
+                // put に失敗することはない（値は数値と真偽値だけ）
+            }
+        }
+        if (!any) return;
+        store.saveSnoozes(snoozes);
+        AlarmScheduler.reschedule(context);
+        Log.i(TAG, "アプリを離れたので、知らせていたお薬を数秒後に端末のアラームで鳴らします");
+    }
+
+    /**
+     * アプリ（MainActivity）が見えるようになったとき。アプリの画面がまた声で知らせるので、
+     * - 引き継ぎで鳴らす予約（まだ鳴っていないもの）は、ふだんの記録待ち（5 分後に鳴らし直す）に戻す
+     * - 引き継ぎで鳴らしているアラームは止め、記録待ちにする（音と帯が、アプリの画面と重ならないように）
+     * 服薬時刻に鳴ったアラームは、アプリを開いても止めない（これまでどおり）。
+     */
+    public static void onAppShown(Context context) {
+        AlarmStore store = new AlarmStore(context);
+        long at = System.currentTimeMillis() + AlarmStore.SNOOZE_MS;
+        org.json.JSONObject snoozes = store.snoozes();
+        List<String> handoffIds = new ArrayList<>();
+        java.util.Iterator<String> keys = snoozes.keys();
+        while (keys.hasNext()) {
+            String id = keys.next();
+            org.json.JSONObject sn = snoozes.optJSONObject(id);
+            if (sn != null && sn.optBoolean(AlarmStore.SNOOZE_HANDOFF, false)) handoffIds.add(id);
+        }
+        for (String id : handoffIds) {
+            org.json.JSONObject sn = snoozes.optJSONObject(id);
+            putSnooze(snoozes, new AlarmStore.Item(id, sn != null ? sn.optLong("origin") : 0), at, true);
+        }
+        if (!handoffIds.isEmpty()) store.saveSnoozes(snoozes);
+
+        if (store.isHandoffRinging() && !store.ringing().isEmpty()) {
+            Log.i(TAG, "アプリに戻ったので、引き継いで鳴らしていたアラームを止めます");
+            hold(context); // 止めて、記録待ち（5 分後に鳴らし直す）にする
+        } else if (!handoffIds.isEmpty()) {
+            AlarmScheduler.reschedule(context);
+        }
+    }
+
+    /**
+     * 「あとで」にしたあいだ、通知欄に「08:25 に、もう一度お知らせします／ロキソニン 1錠、ガスター 1錠」と出す。
+     * 「あとで」を押したあと、どのお薬をいつ知らせるのかを確かめられるようにするため
+     * （Android の時計アプリの「スヌーズ中」の通知と同じ考え方）。「あとで」にしたお薬が無ければ消す。
+     * 記録待ち・引き継ぎの予約（利用者が「あとで」を選んだのではないもの）は出さない。
+     */
+    static void updateSnoozeNotice(Context context) {
+        AlarmStore store = new AlarmStore(context);
+        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        long now = System.currentTimeMillis();
+        long at = Long.MAX_VALUE;
+        List<AlarmStore.Item> items = new ArrayList<>();
+        org.json.JSONObject snoozes = store.snoozes();
+        java.util.Iterator<String> keys = snoozes.keys();
+        while (keys.hasNext()) {
+            String id = keys.next();
+            org.json.JSONObject sn = snoozes.optJSONObject(id);
+            if (sn == null || sn.optBoolean(AlarmStore.SNOOZE_HOLD, false) || sn.optLong("at") <= now) continue;
+            if (store.findSchedule(id) == null || store.isDoneToday(id)) continue;
+            items.add(new AlarmStore.Item(id, sn.optLong("origin")));
+            at = Math.min(at, sn.optLong("at"));
+        }
+        if (items.isEmpty()) {
+            nm.cancel(SNOOZE_NOTICE_ID);
+            return;
+        }
+        ensureChannel(context);
+        String time = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.JAPAN).format(new java.util.Date(at));
+        String text = describe(store, items) + "（「あとで」にしたお薬）";
+        PendingIntent open = PendingIntent.getActivity(
+            context,
+            14,
+            new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        Notification notice = new NotificationCompat.Builder(context, SNOOZED_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle(time + " に、もう一度お知らせします")
+            .setContentText(text)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            // もう一度鳴る時刻に消える（鳴ったときは onAlarmFired からも消す）
+            .setTimeoutAfter(Math.max(1000L, at - now))
+            .build();
+        nm.notify(SNOOZE_NOTICE_ID, notice);
     }
 
     /** 記録が済んだ予定を、鳴っている予定から外す。全部済んだら止める */
@@ -318,17 +477,55 @@ public final class AlarmRinger {
         }
     }
 
-    /** 最初に鳴らす予定（カメラで記録するお薬）の id */
-    static String firstRingingId(Context context) {
-        List<AlarmStore.Item> items = new AlarmStore(context).ringing();
-        return items.isEmpty() ? null : items.get(0).id;
+    /** いま鳴っている予定の id（「カメラを起動する」で、まとめて記録するお薬） */
+    static List<String> ringingIds(Context context) {
+        List<String> ids = new ArrayList<>();
+        for (AlarmStore.Item item : new AlarmStore(context).ringing()) ids.add(item.id);
+        return ids;
     }
 
-    /** 「カメラを起動する」を押したときに開く画面（アプリのホームで撮影を始める） */
-    static Intent takeIntent(Context context, String scheduleId) {
+    /**
+     * 「カメラを起動する」を押したときに開く画面（アプリのホームで撮影を始める）。
+     * 鳴っているお薬すべてを渡し、1 回の撮影でまとめて記録する（どのお薬を記録するかは、撮影画面のチェックで選ぶ）
+     */
+    static Intent takeIntent(Context context, List<String> scheduleIds) {
         return new Intent(context, MainActivity.class)
-            .putExtra(EXTRA_TAKE, scheduleId)
+            .putExtra(EXTRA_TAKE, android.text.TextUtils.join(",", scheduleIds))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    }
+
+    /**
+     * 「あとで」ボタンの文。お薬が 2 つ以上のときは、どれも「あとで」になることを書く
+     * （以前は、いちばん上のお薬だけが「あとで」になったように見えた）
+     * longForm … true: 全画面の「あとで（2つとも5分後にもう一度お知らせ）」 false: 通知・帯の「あとで（2つとも5分後）」
+     */
+    static String snoozeLabel(int count, boolean longForm) {
+        String target = count > 1 ? count + "つとも" : "";
+        return longForm ? "あとで（" + target + "5分後にもう一度お知らせ）" : "あとで（" + target + "5分後）";
+    }
+
+    /** いちばん新しい服薬時刻（大きく出す「08:00 に飲む」の時刻。前の時刻から残っているお薬には、その時刻を添える） */
+    static long latestOrigin(List<AlarmStore.Item> items) {
+        long latest = 0;
+        for (AlarmStore.Item item : items) latest = Math.max(latest, item.origin);
+        return latest;
+    }
+
+    /** いちばん新しい服薬時刻の予定 */
+    static AlarmStore.Schedule latestSchedule(AlarmStore store, List<AlarmStore.Item> items) {
+        long latest = latestOrigin(items);
+        for (AlarmStore.Item item : items) {
+            if (item.origin == latest) {
+                AlarmStore.Schedule s = store.findSchedule(item.id);
+                if (s != null) return s;
+            }
+        }
+        return items.isEmpty() ? null : store.findSchedule(items.get(0).id);
+    }
+
+    /** 前の時刻から残っているお薬か（そのお薬には、服薬時刻を添えて出す） */
+    static boolean isEarlier(AlarmStore.Item item, long latestOrigin) {
+        return item.origin > 0 && item.origin < latestOrigin;
     }
 
     /**
@@ -381,6 +578,20 @@ public final class AlarmRinger {
             quietChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             nm.createNotificationChannel(quietChannel);
         }
+
+        if (nm.getNotificationChannel(SNOOZED_CHANNEL_ID) == null) {
+            // 重要度「低」… 通知欄に出るだけで、音も鳴らさず、画面上部にも出ない
+            NotificationChannel snoozedChannel = new NotificationChannel(
+                SNOOZED_CHANNEL_ID,
+                "「あとで」にしたお薬",
+                NotificationManager.IMPORTANCE_LOW
+            );
+            snoozedChannel.setDescription("アラームで「あとで」を押したお薬と、もう一度お知らせする時刻を、通知欄に出します。");
+            snoozedChannel.setSound(null, null);
+            snoozedChannel.enableVibration(false);
+            snoozedChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            nm.createNotificationChannel(snoozedChannel);
+        }
     }
 
     /** アラームのチャンネルが通知オフにされていないか */
@@ -392,13 +603,18 @@ public final class AlarmRinger {
         return channel == null || channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
     }
 
-    /** 「お薬の時間です」の本文（例: 「08:00　ロキソニン 1錠、ガスター 1錠」） */
+    /**
+     * 「お薬の時間です」の本文（例: 「ロキソニン 1錠、ガスター 1錠」）。
+     * 前の時刻から残っているお薬には、その時刻を添える（例: 「07:30 アムロジン 1錠、ロキソニン 1錠」）
+     */
     static String describe(AlarmStore store, List<AlarmStore.Item> items) {
+        long latest = latestOrigin(items);
         StringBuilder sb = new StringBuilder();
         for (AlarmStore.Item item : items) {
             AlarmStore.Schedule s = store.findSchedule(item.id);
             if (s == null) continue;
             if (sb.length() > 0) sb.append("、");
+            if (isEarlier(item, latest)) sb.append(s.timeText()).append(" ");
             sb.append(s.label);
         }
         return sb.length() > 0 ? sb.toString() : "お薬";
@@ -424,7 +640,10 @@ public final class AlarmRinger {
             new Intent(context, AlarmActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             flags
         );
-        PendingIntent camera = PendingIntent.getActivity(context, 11, takeIntent(context, items.get(0).id), flags);
+        List<String> ids = new ArrayList<>();
+        for (AlarmStore.Item item : items) ids.add(item.id);
+        // 鳴っているお薬すべてを、1 回の撮影でまとめて記録する画面を開く
+        PendingIntent camera = PendingIntent.getActivity(context, 11, takeIntent(context, ids), flags);
         PendingIntent snooze = PendingIntent.getBroadcast(
             context,
             12,
@@ -439,8 +658,8 @@ public final class AlarmRinger {
             flags
         );
 
-        AlarmStore.Schedule first = store.findSchedule(items.get(0).id);
-        String title = (first != null ? first.timeText() + "　" : "") + "お薬の時間です";
+        AlarmStore.Schedule latest = latestSchedule(store, items);
+        String title = (latest != null ? latest.timeText() + "　" : "") + "お薬の時間です";
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, quiet ? QUIET_CHANNEL_ID : CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
@@ -460,7 +679,7 @@ public final class AlarmRinger {
             // そのあいだにアプリを開けば、アプリの画面のアラームが知らせる
             .setDeleteIntent(dismissed)
             .addAction(0, "カメラを起動する", camera)
-            .addAction(0, "あとで（5分後）", snooze);
+            .addAction(0, snoozeLabel(items.size(), false), snooze);
         // 全画面インテントがあると、操作中は画面上部に通知が出るため、全画面が見えているあいだは付けない
         if (!quiet) builder.setFullScreenIntent(fullScreen, true);
         return builder.build();

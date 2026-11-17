@@ -79,9 +79,9 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - `api.js`: `Session`（localStorage のキー `okusuri_techo_session`）、`ApiError`（`code`/`status`/`field`）、fetch のラッパー。`/api/auth/refresh` でアクセストークンを自動更新する。更新処理は1つだけ実行して共有するため、同時に複数のリクエストがあってもリフレッシュトークンを使い切らない。
 - `ui.js`: トースト、`handleApiError`、`requireLoginOrRedirect`、ナビゲーション。
 - `viewTarget.js`（`ViewTarget`）: 表示する人（自分／見守っている家族）の切り替え。選んだ人は localStorage に保存し、ホーム・お薬・記録のタブで共有する。家族の表示中は `body.is-watching` になり、配色が変わる。
-- `alarm.js`（`MedAlarm`）: アプリを画面に表示しているあいだの服薬アラーム。各ページで `MedAlarm.start()` を呼ぶ。服薬時刻から60分以内の未記録の予定について、全画面の表示と繰り返しの音を出す。ホーム以外で「カメラを起動する」を押すと `home.html?take=<スケジュールID>` へ移動する。
+- `alarm.js`（`MedAlarm`）: アプリを画面に表示しているあいだの服薬アラーム。各ページで `MedAlarm.start()` を呼ぶ。服薬時刻から60分以内の未記録の予定について、全画面の表示と繰り返しの音を出す。お薬が2つ以上のときはチェックで選び、1回の撮影（`POST /api/logs/take-many`。映像は1つを共有し、家族への通知は1通）でまとめて記録する。ホーム以外で「カメラを起動する」を押すと `home.html?take=<スケジュールID,…>&pick=<チェックしたID,…>` へ移動する。
 - `sw.js` は `public/` の直下に置いたままにする。アプリ全体をスコープに含めるため。
-- `alarm.js` の `NativeAlarm` は、ネイティブ版のときだけ動く（Web 版では何もしない）。`MedAlarm` が予定を取得するたびに `NativeAlarm.sync()` で端末のアラームを予約し直す。ネイティブ版かどうかは `APP_CONFIG.IS_NATIVE_APP`（`config.js`）で判定する。
+- `alarm.js` の `NativeAlarm` は、ネイティブ版のときだけ動く（Web 版では何もしない）。`MedAlarm` が予定を取得するたびに `NativeAlarm.sync()` で端末のアラームを予約し直す。アプリの中で知らせているお薬は `NativeAlarm.setAppAlarm()` で端末に伝え、記録しないままアプリを離れると、`MainActivity` の onStop（`AlarmRinger.onAppHidden`）で端末のアラームが約5秒後に引き継いで鳴らす。ネイティブ版かどうかは `APP_CONFIG.IS_NATIVE_APP`（`config.js`）で判定する。
 - 高齢の利用者を想定しているので、平易で丁寧な日本語の文言と、大きく分かりやすい UI を優先する。
 
 ### ネイティブ版（`mobile/`、Android のみ）

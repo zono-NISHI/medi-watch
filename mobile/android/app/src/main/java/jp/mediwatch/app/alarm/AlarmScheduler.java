@@ -141,7 +141,8 @@ public final class AlarmScheduler {
             due.add(new AlarmStore.Item(s.id, at));
         }
 
-        // 「あとで」にしていた予定
+        // 「あとで」にしていた予定（記録待ち・アプリを離れたときの引き継ぎも、同じ仕組みで鳴らす）
+        int handoffCount = 0;
         JSONObject snoozes = store.snoozes();
         List<String> finished = new ArrayList<>();
         Iterator<String> keys = snoozes.keys();
@@ -154,13 +155,23 @@ public final class AlarmScheduler {
             boolean expired = now - origin > AlarmStore.ALARM_WINDOW_MS;
             if (!expired && !store.isDoneToday(id) && store.findSchedule(id) != null && !containsId(due, id)) {
                 due.add(new AlarmStore.Item(id, origin));
+                if (sn.optBoolean(AlarmStore.SNOOZE_HANDOFF, false)) handoffCount++;
             }
         }
         for (String id : finished) snoozes.remove(id);
         store.saveSnoozes(snoozes);
 
-        if (!due.isEmpty()) AlarmRinger.ring(context, due);
+        if (!due.isEmpty()) {
+            // アプリを離れたときの引き継ぎだけで鳴らすときは、全画面を開かず、音と画面上部の帯で知らせる
+            // （服薬時刻・「あとで」の 5 分後のお薬が一緒なら、これまでどおり全画面を開く）
+            boolean handoffOnly = handoffCount == due.size();
+            boolean idleOrHandoff = store.ringing().isEmpty() || store.isHandoffRinging();
+            AlarmRinger.ring(context, due, !handoffOnly);
+            // 引き継ぎで鳴らしたアラームは、アプリに戻ったら止める（AlarmRinger.onAppShown）
+            store.setHandoffRinging(handoffOnly && idleOrHandoff);
+        }
         reschedule(context);
+        AlarmRinger.updateSnoozeNotice(context); // 「あとで」の時刻になったお薬の「もう一度お知らせします」を消す
     }
 
     /** その予定を次に鳴らす時刻（今より後）。無ければ -1 */

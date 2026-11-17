@@ -173,6 +173,60 @@ router.patch(
 );
 
 // ----------------------------------------------------------
+// POST /api/logs/take-many ・ POST /api/logs/skip-many
+// 同じ時刻のお薬など、複数の記録をまとめて「飲んだ」「スキップ」にする（ホーム・アラームから）。
+// 同じ時刻のお薬は実際には一度に飲むことが多いので、1 回撮った映像を、まとめて記録したお薬すべてに付ける。
+// 家族への通知は、お薬の数だけ届かないよう 1 通にまとめる。
+// body: { log_ids: [記録ID, ...], video_url? }
+//  - video_url は、まとめて記録する記録のどれか 1 つの映像の保存先（{本人のID}/{記録ID}.mp4）だけを受け付ける
+//    （video-upload-url で発行した保存先。ほかの人の映像や、関係のない場所を指させないため）
+// ----------------------------------------------------------
+const MAX_BATCH_LOGS = 20;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseLogIds(body) {
+  const ids = body?.log_ids;
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BATCH_LOGS) return null;
+  if (!ids.every((id) => typeof id === 'string' && UUID_RE.test(id))) return null;
+  return [...new Set(ids)];
+}
+
+async function recordMany(req, res, status) {
+  const ids = parseLogIds(req.body);
+  if (!ids) {
+    return res.status(400).json({ code: 'INVALID_LOG_IDS', error: '記録するお薬の指定が正しくありません。' });
+  }
+  const videoUrl = status === 'taken' ? req.body.video_url || null : null;
+  if (videoUrl && !ids.some((id) => videoUrl === `${req.user.id}/${id}.mp4`)) {
+    return res.status(400).json({ code: 'INVALID_VIDEO', error: '映像の保存先が正しくありません。' });
+  }
+
+  const { data: logs, error } = await req.supabase
+    .from('medication_logs')
+    // taken_at は「記録した時刻」として扱い、スキップ時にも保存する（記録タブで表示・並び替えに使う）
+    .update({ status, taken_at: new Date().toISOString(), ...(status === 'taken' ? { video_url: videoUrl } : {}) })
+    .in('id', ids)
+    .eq('patient_id', req.user.id)
+    .select();
+
+  if (error) return sendSupabaseError(res, error, '服薬記録の更新に失敗しました。');
+  if (!logs || logs.length === 0) {
+    return res.status(404).json({ code: 'NOT_FOUND', error: '記録できる服薬記録が見つかりません。' });
+  }
+
+  // 家族への通知は 1 通にまとめる（映像があれば、映像の付いた記録を開けるようにする）
+  const type = status === 'skipped' ? 'medication_skipped' : videoUrl ? 'video_recorded' : 'medication_taken';
+  const notifyLog = logs.find((l) => videoUrl && l.video_url === videoUrl) || logs[0];
+  notifyCareGroup({ patientId: req.user.id, logId: notifyLog.id, type })
+    .catch((e) => console.error('[notify] まとめて記録した通知の送信に失敗:', e));
+
+  res.json({ logs });
+}
+
+router.post('/take-many', asyncHandler((req, res) => recordMany(req, res, 'taken')));
+router.post('/skip-many', asyncHandler((req, res) => recordMany(req, res, 'skipped')));
+
+// ----------------------------------------------------------
 // PATCH /api/logs/:id/status
 // 記録タブからの状態の変更（付け忘れ・押し間違いの訂正）。本人だけが行える。
 // body: { status: 'taken' | 'skipped' | 'pending' }
@@ -266,7 +320,13 @@ router.get(
     if (logErr) return sendSupabaseError(res, logErr, '服薬記録が見つかりません。');
     if (!log.video_url) return res.status(404).json({ error: 'この記録に映像はありません。' });
 
-    const path = `${log.patient_id}/${req.params.id}.mp4`;
+    // まとめて記録したお薬は、1 つの映像（そのうち 1 つの記録の保存先）を共有しているので、
+    // 記録に保存した保存先を使う。本人のフォルダの中だけを受け付け、それ以外は記録ID から決める（以前の記録と同じ）
+    const saved = String(log.video_url);
+    const path =
+      saved.startsWith(`${log.patient_id}/`) && saved.endsWith('.mp4') && !saved.includes('..')
+        ? saved
+        : `${log.patient_id}/${req.params.id}.mp4`;
     const { data, error } = await req.supabase.storage
       .from('medication-videos')
       .createSignedUrl(path, 3600);

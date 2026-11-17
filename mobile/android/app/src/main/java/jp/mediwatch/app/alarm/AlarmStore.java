@@ -35,6 +35,11 @@ final class AlarmStore {
     static final long LATE_TOLERANCE_MS = 10L * 60 * 1000;
     /** 電源を入れてから、鳴らせなかったアラームを鳴らすまでの時間（起動直後の処理が落ち着くのを待つ） */
     static final long BOOT_CATCH_UP_DELAY_MS = 5L * 1000;
+    /**
+     * アプリの画面で知らせているお薬を記録しないままアプリを離れたとき、端末のアラームが引き継いで鳴らすまでの時間。
+     * 一瞬アプリが隠れただけ（すぐに戻った）で鳴り出さないように、少し待つ
+     */
+    static final long HANDOFF_DELAY_MS = 5L * 1000;
 
     private static final String PREFS = "medi_watch_alarm";
     private static final String KEY_SCHEDULES = "schedules";
@@ -44,6 +49,8 @@ final class AlarmStore {
     private static final String KEY_RINGING = "ringing";
     private static final String KEY_ALERTED = "alerted";
     private static final String KEY_NEXT_AT = "next_at";
+    private static final String KEY_APP_ALARM = "app_alarm";
+    private static final String KEY_HANDOFF_RINGING = "handoff_ringing";
 
     /** 服薬スケジュール 1 件分 */
     static final class Schedule {
@@ -181,6 +188,11 @@ final class AlarmStore {
      * 「カメラを起動する」を押したあと、記録しないままになったときに備えた予約）
      */
     static final String SNOOZE_HOLD = "hold";
+    /**
+     * 鳴らし直す予約の「引き継ぎ」の印（true のとき、アプリの画面で知らせていたお薬を記録しないままアプリを離れたので、
+     * 端末のアラームが代わりに鳴らすための予約。アプリに戻ったら取り消す。AlarmRinger.onAppHidden を参照）
+     */
+    static final String SNOOZE_HANDOFF = "handoff";
 
     /** id → { at: もう一度鳴らす時刻, origin: 本来の服薬時刻, hold: 記録待ちか } */
     JSONObject snoozes() {
@@ -216,16 +228,46 @@ final class AlarmStore {
     // ---- いま鳴らしている予定 ----
 
     List<Item> ringing() {
+        return readItems(KEY_RINGING);
+    }
+
+    void saveRinging(List<Item> items) {
+        saveItems(KEY_RINGING, items);
+    }
+
+    // ---- アプリの画面で知らせている（撮影画面で記録しようとしている）予定 ----
+    // アプリの画面（public/js/alarm.js の NativeAlarm.setAppAlarm）が伝えてくる。
+    // 記録しないままアプリを離れたら、端末のアラームが引き継いで鳴らす（AlarmRinger.onAppHidden）
+
+    List<Item> appAlarm() {
+        return readItems(KEY_APP_ALARM);
+    }
+
+    void saveAppAlarm(List<Item> items) {
+        saveItems(KEY_APP_ALARM, items);
+    }
+
+    // ---- いま鳴っているのが「引き継ぎ」で鳴らしたアラームか（アプリに戻ったら止める） ----
+
+    boolean isHandoffRinging() {
+        return prefs.getBoolean(KEY_HANDOFF_RINGING, false);
+    }
+
+    void setHandoffRinging(boolean value) {
+        prefs.edit().putBoolean(KEY_HANDOFF_RINGING, value).apply();
+    }
+
+    private List<Item> readItems(String key) {
         List<Item> list = new ArrayList<>();
-        JSONArray arr = readArray(KEY_RINGING);
+        JSONArray arr = readArray(key);
         for (int i = 0; i < arr.length(); i++) {
             JSONObject o = arr.optJSONObject(i);
-            if (o != null) list.add(new Item(o.optString("id"), o.optLong("origin")));
+            if (o != null && !o.optString("id").isEmpty()) list.add(new Item(o.optString("id"), o.optLong("origin")));
         }
         return list;
     }
 
-    void saveRinging(List<Item> items) {
+    private void saveItems(String key, List<Item> items) {
         JSONArray arr = new JSONArray();
         for (Item item : items) {
             try {
@@ -234,7 +276,7 @@ final class AlarmStore {
                 // put に失敗することはない（値は文字列と数値だけ）
             }
         }
-        prefs.edit().putString(KEY_RINGING, arr.toString()).apply();
+        prefs.edit().putString(key, arr.toString()).apply();
     }
 
     // ---- 同じ服薬時刻で二度鳴らさないための記録（id → 最後に鳴らした服薬時刻） ----
