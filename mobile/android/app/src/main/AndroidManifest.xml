@@ -59,6 +59,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- ご家族のお知らせ（Firebase Cloud Messaging）。
+             アイコン：アプリのアイコンのままだと、通知の欄で白い四角になるため、端末に入っているベルの形のアイコンを使う。
+             チャンネル：public/js/push.js が作る「ご家族のお知らせ」（重要度「高」）を使う -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@android:drawable/ic_popup_reminder" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="family_notice" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

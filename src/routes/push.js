@@ -4,9 +4,13 @@
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
-const webpush = require('web-push');
 const { supabaseAdmin } = require('../supabase/supabase');
-const { VAPID_PUBLIC_KEY, vapidConfigured } = require('../services/notificationService');
+const {
+  VAPID_PUBLIC_KEY,
+  vapidConfigured,
+  fcmConfigured,
+  sendToSubscription,
+} = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -25,13 +29,17 @@ router.use(requireAuth);
 
 // ----------------------------------------------------------
 // POST /api/push/subscribe
-// body: { endpoint, keys: { p256dh, auth }, device_name }
+// ブラウザ（Web Push）: body: { endpoint, keys: { p256dh, auth }, device_name }
+// ネイティブ版（FCM）:  body: { kind: 'fcm', token, device_name }
+//   FCM のトークンは endpoint 列に入れる（0007 のマイグレーションを参照）
 // ----------------------------------------------------------
 router.post(
   '/subscribe',
   asyncHandler(async (req, res) => {
-    const { endpoint, keys, device_name } = req.body;
-    if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    const { keys, device_name } = req.body;
+    const kind = req.body.kind === 'fcm' ? 'fcm' : 'webpush';
+    const endpoint = kind === 'fcm' ? req.body.token : req.body.endpoint;
+    if (typeof endpoint !== 'string' || !endpoint || (kind === 'webpush' && (!keys?.p256dh || !keys?.auth))) {
       return res.status(400).json({ error: 'プッシュ購読情報が不正です。' });
     }
 
@@ -51,9 +59,10 @@ router.post(
       .upsert(
         {
           user_id: req.user.id,
+          kind,
           endpoint,
-          p256dh: keys.p256dh,
-          auth_key: keys.auth,
+          p256dh: kind === 'webpush' ? keys.p256dh : null,
+          auth_key: kind === 'webpush' ? keys.auth : null,
           device_name: device_name || null,
         },
         { onConflict: 'user_id,endpoint' }
@@ -68,7 +77,7 @@ router.post(
 
 // ----------------------------------------------------------
 // DELETE /api/push/subscribe
-// body: { endpoint }
+// body: { endpoint }（ネイティブ版は FCM のトークンを endpoint として送る）
 // ----------------------------------------------------------
 router.delete(
   '/subscribe',
@@ -100,7 +109,7 @@ router.get(
 
     const { data: subs, error: subErr } = await req.supabase
       .from('push_subscriptions')
-      .select('id, device_name, created_at')
+      .select('id, kind, device_name, created_at')
       .eq('user_id', req.user.id);
     if (subErr) return sendSupabaseError(res, subErr, '端末情報の取得に失敗しました。');
 
@@ -123,7 +132,9 @@ router.get(
     res.json({
       server_time_jst: toJst(now),
       vapid_configured: vapidConfigured,
+      fcm_configured: fcmConfigured,
       devices: (subs || []).length,
+      devices_fcm: (subs || []).filter((s) => s.kind === 'fcm').length,
       schedules: (schedules || []).map((s) => ({
         name: s.medications?.name,
         time: s.scheduled_time,
@@ -143,8 +154,8 @@ router.get(
 router.post(
   '/test',
   asyncHandler(async (req, res) => {
-    if (!vapidConfigured) {
-      return res.status(503).json({ error: 'サーバーに VAPID 鍵が設定されていません。' });
+    if (!vapidConfigured && !fcmConfigured) {
+      return res.status(503).json({ error: 'サーバーに VAPID 鍵も Firebase の鍵も設定されていません。' });
     }
     const { data: subs, error } = await req.supabase
       .from('push_subscriptions')
@@ -152,22 +163,20 @@ router.post(
       .eq('user_id', req.user.id);
     if (error) return sendSupabaseError(res, error, '端末情報の取得に失敗しました。');
     if (!subs || subs.length === 0) {
-      return res.status(400).json({ error: 'この利用者の端末が登録されていません。先に「プッシュ通知を有効にする」を押してください。' });
+      return res.status(400).json({
+        error: 'この利用者の端末が登録されていません。先に「プッシュ通知を有効にする」（アプリでは「お知らせを受け取る」）を押してください。',
+      });
     }
 
     const results = await Promise.all(
       subs.map(async (sub) => {
-        try {
-          const r = await webpush.sendNotification(
-            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
-            JSON.stringify({ title: 'テスト通知', body: 'medi-watch からの通知は正しく届いています。', type: 'test' }),
-            { TTL: 60, urgency: 'high' }
-          );
-          return { ok: true, status: r.statusCode };
-        } catch (err) {
-          console.error('[push/test] 送信失敗:', err.statusCode, err.body || err.message);
-          return { ok: false, status: err.statusCode || null, message: String(err.body || err.message).slice(0, 200) };
-        }
+        const r = await sendToSubscription(
+          sub,
+          { title: 'テスト通知', body: 'medi-watch からの通知は正しく届いています。', type: 'test' },
+          { ttlSeconds: 60 }
+        );
+        if (!r.ok) console.error('[push/test] 送信失敗:', sub.kind, r.status, r.message);
+        return { ok: r.ok, kind: sub.kind, status: r.status, message: r.message || undefined };
       })
     );
     res.json({ sent: results.filter((r) => r.ok).length, total: results.length, results });

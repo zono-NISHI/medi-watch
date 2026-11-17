@@ -1,7 +1,10 @@
 // ============================================================
-//  プッシュ通知の有効化（マイページ・ホーム画面で共通）
-//  - 端末・ブラウザの状態を調べ、許可されない理由に合わせた案内を出す
-//  - iPhone は「ホーム画面に追加」したアプリからでないと Web Push を使えない
+//  プッシュ通知の有効化（ログイン後の各画面で共通）
+//  - ブラウザ（Web 版・PWA）… Web Push。端末・ブラウザの状態を調べ、許可されない理由に合わせた案内を出す
+//    iPhone は「ホーム画面に追加」したアプリからでないと Web Push を使えない
+//  - ネイティブ版（Android アプリ）… Firebase Cloud Messaging（FCM）。
+//    アプリの画面（WebView）は Web Push に対応していないため、@capacitor/push-notifications を使う。
+//    バンドラーを使わないので、Capacitor が用意する nativePromise / addListener で直接呼ぶ。
 // ============================================================
 
 const PushSetup = (() => {
@@ -13,11 +16,140 @@ const PushSetup = (() => {
   // LINE・Instagram・Facebook などのアプリ内ブラウザは通知を使えない
   const isInAppBrowser = /Line\/|FBAN|FBAV|Instagram/i.test(ua);
 
+  // ---- ネイティブ版（FCM） ----
+  const isNative = !!window.APP_CONFIG?.IS_NATIVE_APP && typeof window.Capacitor?.nativePromise === 'function';
+  // 通知のプラグインが入っているか（入っていない古い版のアプリでは、呼ぶとエラーになるため確かめる）
+  const nativePushAvailable =
+    isNative && (window.Capacitor.PluginHeaders || []).some((h) => h.name === 'PushNotifications');
+  // この端末の FCM のトークン。ログアウト時に、サーバーの登録を消すために覚えておく
+  const FCM_TOKEN_KEY = 'medi_watch_fcm_token';
+  // 通知チャンネル（サーバーの notificationService.js の FCM_CHANNEL_ID と同じ値）
+  const FCM_CHANNEL = {
+    id: 'family_notice',
+    name: 'ご家族のお知らせ',
+    description: 'ご家族のお薬の飲み忘れ・服薬の記録などのお知らせ',
+    importance: 4, // 高（画面の上に表示し、音を鳴らす）
+    visibility: 1, // ロック画面にも内容を表示する
+    vibration: true,
+    lights: false,
+  };
+
+  function nativeCall(method, options = {}) {
+    return window.Capacitor.nativePromise('PushNotifications', method, options);
+  }
+
+  function storeToken(token) {
+    try { localStorage.setItem(FCM_TOKEN_KEY, token); } catch {}
+  }
+  function storedToken() {
+    try { return localStorage.getItem(FCM_TOKEN_KEY); } catch { return null; }
+  }
+
+  // FCM に登録し、この端末のトークンを受け取る（結果はイベントで届く）
+  function registerNative() {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const listeners = [];
+      const finish = (fn, value) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        listeners.forEach((l) => l.remove());
+        fn(value);
+      };
+      const timer = setTimeout(() => finish(reject, new Error('端末の宛先を受け取れませんでした（時間切れ）')), 20000);
+      listeners.push(
+        window.Capacitor.addListener('PushNotifications', 'registration', (data) => {
+          if (data?.value) finish(resolve, data.value);
+        }),
+        window.Capacitor.addListener('PushNotifications', 'registrationError', (data) => {
+          finish(reject, new Error(data?.error || '端末の登録に失敗しました'));
+        })
+      );
+      nativeCall('createChannel', FCM_CHANNEL)
+        .catch((err) => console.warn('[push] 通知チャンネルを作れませんでした:', err))
+        .then(() => nativeCall('register'))
+        .catch((err) => finish(reject, err));
+    });
+  }
+
+  // 通知の許可の状態（'granted' / 'denied' / 'prompt' など）。調べられないときは null
+  async function nativePermission() {
+    try {
+      return (await nativeCall('checkPermissions')).receive;
+    } catch {
+      return null;
+    }
+  }
+
+  // トークンを受け取って、いまログインしている利用者の端末としてサーバーに登録する
+  async function linkNative() {
+    const token = await registerNative();
+    await Api.subscribePush({ kind: 'fcm', token, device_name: 'Android アプリ' });
+    storeToken(token);
+    return token;
+  }
+
+  const nativeDeniedGuide =
+    '通知がオフになっています。スマホの「設定」→「アプリ」→「お薬手帳」→「通知」をオンにしてから、もう一度押してください。';
+
+  async function enableNative() {
+    let permission = await nativePermission();
+    // 以前「許可しない」を選んだ場合、許可の画面はもう出ないため、設定の場所を案内する
+    if (permission === 'denied') {
+      showToast(nativeDeniedGuide, 'error', 10000);
+      return false;
+    }
+    if (permission !== 'granted') {
+      try {
+        permission = (await nativeCall('requestPermissions')).receive;
+      } catch {
+        permission = null;
+      }
+    }
+    if (permission !== 'granted') {
+      showToast(
+        permission === 'denied' ? nativeDeniedGuide : '通知が許可されませんでした。もう一度押して「許可」を選んでください。',
+        'info',
+        10000
+      );
+      return false;
+    }
+    try {
+      await linkNative();
+      showToast('ご家族のお知らせを受け取れるようにしました。', 'success');
+      return true;
+    } catch (err) {
+      console.error('[push] アプリの通知の登録に失敗:', err);
+      showToast(`通知の設定に失敗しました。${err?.message || err}`, 'error', 15000);
+      return false;
+    }
+  }
+
+  // 通知をタップしてアプリが開いたら、通知の内容に合った画面を開く（sw.js の notificationclick と同じ行き先）
+  // アプリが閉じていたときは、通知の情報はプラグインが預かっていて、ここで受け取り口を作ったときに届く
+  function listenNativeTaps() {
+    window.Capacitor.addListener('PushNotifications', 'pushNotificationActionPerformed', (action) => {
+      const data = action?.notification?.data || {};
+      if (data.url) {
+        location.href = data.url;
+      } else if (data.patientId) {
+        location.href = `home.html?view=${encodeURIComponent(data.patientId)}`;
+      } else if (data.type) {
+        location.href = 'home.html';
+      }
+    });
+  }
+  if (nativePushAvailable) listenNativeTaps();
+
+  // ---- ブラウザ（Web Push） ----
+
   // 通知を使えない理由を返す（使える場合は null）
   function unsupportedReason() {
-    // ネイティブ版（Android アプリ）の画面（WebView）は Web Push に対応していない
-    if (window.APP_CONFIG?.IS_NATIVE_APP) {
-      return 'アプリでは、お薬の時間をアプリのアラームでお知らせします。ご家族の飲み忘れのお知らせを受け取るときは、Chrome で medi-watch を開き、マイページの「プッシュ通知を有効にする」を押してください。';
+    if (isNative) {
+      return nativePushAvailable
+        ? null
+        : 'このアプリの版では、ご家族のお知らせを受け取れません。アプリを新しい版に更新してください。';
     }
     if (isInAppBrowser) {
       return 'アプリ内のブラウザでは通知を使えません。Chrome（iPhone は Safari）で開き直してください。';
@@ -59,6 +191,7 @@ const PushSetup = (() => {
       showToast(reason, 'error', 8000);
       return false;
     }
+    if (isNative) return enableNative();
 
     // 以前「ブロック」した場合、requestPermission() はダイアログを出さずに即 'denied' を返す
     if (Notification.permission === 'denied') {
@@ -121,7 +254,7 @@ const PushSetup = (() => {
   // 既に有効かどうか（ボタン表示の切り替え用）
   // ブラウザ側の購読（端末）を取得する。無ければ null
   async function currentSubscription() {
-    if (unsupportedReason() || Notification.permission !== 'granted') return null;
+    if (isNative || unsupportedReason() || Notification.permission !== 'granted') return null;
     const reg = await navigator.serviceWorker.getRegistration();
     return reg ? reg.pushManager.getSubscription() : null;
   }
@@ -129,9 +262,16 @@ const PushSetup = (() => {
   // 「この端末」を「いまログインしている利用者」に結び付け直す。
   // ブラウザの購読は端末（ブラウザ）ごとに1つで、アカウントとは無関係に残る。
   // そのため、同じブラウザで別のアカウントにログインした場合も、ここで登録し直す。
+  // ネイティブ版では、通知が許可されていれば（アラームの設定で許可していることが多い）、
+  // ボタンを押さなくても登録する。アプリを更新しただけで、ご家族のお知らせが届くようにするため。
   // 成功したら true（＝この利用者で通知が有効）。画面を開いたときに黙って呼ぶ。
   async function syncCurrentUser() {
     try {
+      if (isNative) {
+        if (!nativePushAvailable || (await nativePermission()) !== 'granted') return false;
+        await linkNative();
+        return true;
+      }
       const sub = await currentSubscription();
       if (!sub) return false;
       const subJson = sub.toJSON();
@@ -151,6 +291,11 @@ const PushSetup = (() => {
   // （消さないと、ログアウト後もその利用者宛ての通知がこの端末に届き続ける）
   async function unlinkCurrentUser() {
     try {
+      if (isNative) {
+        const token = storedToken();
+        if (token) await Api.unsubscribePush(token);
+        return;
+      }
       const sub = await currentSubscription();
       if (sub) await Api.unsubscribePush(sub.endpoint);
     } catch (err) {
@@ -158,8 +303,14 @@ const PushSetup = (() => {
     }
   }
 
+  // この端末の通知の許可の状態（「通知の状態を確認する」の表示用）
+  async function permissionState() {
+    if (isNative) return nativePushAvailable ? (await nativePermission()) || '不明' : '非対応（古い版のアプリ）';
+    return 'Notification' in window ? Notification.permission : '非対応';
+  }
+
   // 互換用（ボタン表示の切り替え）。サーバー側の登録まで確認する
   const isEnabled = syncCurrentUser;
 
-  return { enable, isEnabled, syncCurrentUser, unlinkCurrentUser, unsupportedReason };
+  return { enable, isEnabled, syncCurrentUser, unlinkCurrentUser, unsupportedReason, permissionState, isNative };
 })();

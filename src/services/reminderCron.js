@@ -130,10 +130,13 @@ async function sendDueReminders() {
   for (const log of dueLogs) {
     if (sentSet.has(log.id)) continue;
 
+    // ブラウザ（Web Push）の端末だけに送る。ネイティブ版（FCM）の端末は、
+    // 端末のアラーム（mobile/ の MediAlarmPlugin）がお薬の時間を知らせるため、ここで送ると二重になる。
     const { data: subs } = await supabaseAdmin
       .from('push_subscriptions')
       .select('*')
-      .eq('user_id', log.patient_id);
+      .eq('user_id', log.patient_id)
+      .eq('kind', 'webpush');
 
     // 端末が未登録なら記録せず次回また確認する（途中で通知を有効にした場合に間に合うように）
     if (!subs || subs.length === 0) {

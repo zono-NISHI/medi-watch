@@ -64,16 +64,12 @@
       </div>
     </section>
 
-    <!-- ネイティブ版で、「家族を見守る」を使う人だけに表示する。アラームの設定とは別の話なので、欄を分ける -->
-    <section class="card" id="native-family-card" style="margin-top: var(--space-3);" hidden>
-      <h2>ご家族の飲み忘れのお知らせ</h2>
-      <p class="text-sm"><strong>いまは、このアプリでは受け取れません。</strong></p>
-      <p class="text-sm text-muted">受け取るときは、Chrome で medi-watch を開き、マイページの「プッシュ通知を有効にする」を押してください。</p>
-    </section>
-
+    <!-- Web 版では「通知設定」として全員に表示する。
+         ネイティブ版では「ご家族のお知らせ」として、「家族を見守る」を使う人だけに表示する（見出しと説明は mypage.js で切り替える）。
+         アラームの設定とは別の話なので、欄を分ける -->
     <section class="card card--warm" id="web-push-card" style="margin-top: var(--space-3);">
-      <h2>通知設定</h2>
-      <p class="text-sm text-muted">服薬リマインドや家族からのお知らせを受け取ります。</p>
+      <h2 id="push-card-title">通知設定</h2>
+      <p class="text-sm text-muted" id="push-card-desc">服薬リマインドや家族からのお知らせを受け取ります。</p>
       <button class="btn btn-outline" id="enable-notif-btn">プッシュ通知を有効にする</button>
       <button class="btn btn-outline" id="test-notif-btn" style="margin-top: var(--space-2);">テスト通知を送る</button>
       <button class="btn btn-outline" id="status-notif-btn" style="margin-top: var(--space-2);">通知の状態を確認する</button>
