@@ -291,17 +291,25 @@ function renderSchedules(merged, target, hasSchedules) {
           ? `<button class="btn btn-outline btn--sm" data-action="view-video" data-log-id="${log.id}">映像を見る</button>`
           : '';
 
+      // 「どのくらい」（用量・単位）と「いつ」（食前・食後など）。登録していない項目は出さない
+      const doseText = [`${med.dosage ?? ''} ${med.unit ?? ''}`.trim(), mealTimingLabel(schedule.meal_timing)]
+        .filter(Boolean)
+        .join(' ・ ');
+
+      // どのカードも同じ段の並びにする（狭い画面でも、文字が細い列に押し込まれて縦に折り返さない）
+      //   1段目: 時刻（左）と、いまの状態（右）
+      //   2段目: お薬の名前
+      //   3段目: どのくらい・いつ
+      //   4段目: ボタン（あるときだけ。横幅いっぱい）
       return `
         <div class="schedule-card ${status === 'taken' ? 'is-taken' : ''} ${isOverdue ? 'is-overdue' : ''}">
-          <div class="schedule-time">${formatTime(schedule.scheduled_time)}</div>
-          <div class="schedule-main">
-            <h3>${escapeHtml(med.name || '（薬名未設定）')}</h3>
-            <div class="schedule-meta">
-              <span class="text-sm text-muted">${escapeHtml(med.dosage)} ${escapeHtml(med.unit)} ・ ${mealTimingLabel(schedule.meal_timing)}</span>
-              ${statusBadge}
-            </div>
+          <div class="schedule-head">
+            <div class="schedule-time">${formatTime(schedule.scheduled_time)}</div>
+            ${statusBadge}
           </div>
-          <div class="schedule-action">${actionHtml}</div>
+          <h3 class="schedule-name">${escapeHtml(med.name || '（薬名未設定）')}</h3>
+          ${doseText ? `<p class="schedule-dose">${escapeHtml(doseText)}</p>` : ''}
+          ${actionHtml ? `<div class="schedule-action">${actionHtml}</div>` : ''}
         </div>`;
     })
     .join('');
