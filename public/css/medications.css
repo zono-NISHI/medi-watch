@@ -58,6 +58,45 @@
 .okusuri-modal::backdrop { background: rgba(29, 51, 56, 0.55); }
 .okusuri-modal-inner { padding: var(--space-4); overflow-y: auto; max-height: 88vh; position: relative; }
 
+/* スマホなどの狭い画面では、登録・確認・QRコードの画面を全画面で開く。
+   小さな窓だと、大きな文字の入力欄が窮屈になり、後ろの一覧が透けて見えて、いまどの画面か分かりにくい。
+   また窓の中だけが縦に動くため、どこを動かせばよいか迷いやすい */
+@media (max-width: 640px) {
+  .okusuri-modal {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+    overflow: hidden; /* 縦に動かすのは中身（.okusuri-modal-inner）だけにする */
+  }
+  .okusuri-modal-inner {
+    height: 100%;
+    max-height: none;
+    padding: var(--space-3) var(--space-3) var(--space-5);
+  }
+  /* 「×」は、下へ動かしても右上に残す（どこまで動かしても閉じられるように） */
+  .okusuri-modal .modal-close {
+    position: fixed;
+    top: var(--space-2);
+    right: var(--space-2);
+    z-index: 1;
+    box-shadow: var(--shadow-soft);
+  }
+  .okusuri-modal h2 { padding-right: 52px; } /* 見出しが「×」の下に隠れないようにする */
+}
+
+/* 用量と単位。広い画面では横に並べ、狭い画面（どちらかが 12rem 未満になる幅）では縦に積む。
+   スマホで横に並べると、単位の欄が細くなり、「その他（入力する）」の入力欄の「単位を入力」などが欠けるため */
+.amount-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.amount-row > .field { flex: 1 1 12rem; min-width: 0; }
+
 .camera-frame {
   position: relative;
   width: 100%;

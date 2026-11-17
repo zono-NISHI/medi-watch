@@ -13,14 +13,24 @@ const router = express.Router();
 router.use(requireAuth);
 
 // 用量・単位は必須（どちらかが空だと、読み上げ・アラーム・家族が見る記録で「何をどれだけ飲むか」が伝わらないため）
-// 「適量」などの言葉も入れられるよう、中身の形は問わず、空かどうかだけを見る
+// 用量は数（0.5 などの小数も可）だけ。「1錠」のように単位まで書くと、読み上げが「1錠錠」になるため
+// （画面の public/js/pages/medications.js でも同じ決まりで確かめる）
 function isBlank(value) {
   return String(value ?? '').trim() === '';
 }
 
+// 全角の数字・小数点（「１」「０．５」）は半角にそろえる
+function normalizeDosage(value) {
+  return String(value ?? '').normalize('NFKC').trim();
+}
+
 function amountError({ dosage, unit }, name) {
   const who = name ? `「${name}」の` : '';
-  if (isBlank(dosage)) return { code: 'DOSAGE_REQUIRED', error: `${who}用量を入力してください。` };
+  const d = normalizeDosage(dosage);
+  if (!d) return { code: 'DOSAGE_REQUIRED', error: `${who}用量を数字で入力してください。` };
+  if (!/^\d+(\.\d+)?$/.test(d) || Number(d) <= 0) {
+    return { code: 'DOSAGE_INVALID', error: `${who}用量は数字だけで入力してください。（例：1、0.5）` };
+  }
   if (isBlank(unit)) return { code: 'UNIT_REQUIRED', error: `${who}単位を選んでください。` };
   return null;
 }
@@ -90,7 +100,7 @@ router.post(
       .insert({
         patient_id: req.user.id,
         name,
-        dosage: dosage || null,
+        dosage: normalizeDosage(dosage),
         unit: unit || null,
         notes: notes || null,
         start_date: start_date || null,
@@ -170,7 +180,7 @@ router.post(
     const rows = medications.map((m) => ({
       patient_id: req.user.id,
       name: m.name,
-      dosage: m.dosage || null,
+      dosage: normalizeDosage(m.dosage),
       unit: m.unit || null,
       notes: m.notes || null,
       qr_raw_data: qr_raw_data || null,
@@ -218,6 +228,7 @@ router.patch(
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
     }
+    if (updates.dosage !== undefined) updates.dosage = normalizeDosage(updates.dosage);
 
     const { data, error } = await req.supabase
       .from('medications')

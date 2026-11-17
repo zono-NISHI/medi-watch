@@ -78,12 +78,14 @@
           <label for="m-name">薬の名前<span class="required-mark">（必須）</span></label>
           <input type="text" id="m-name" required placeholder="例：アムロジピン錠5mg" />
         </div>
-        <div class="row">
-          <div class="field" style="flex:1">
+        <!-- 広い画面では用量と単位を横に並べ、スマホでは縦に積む（css/medications.css の .amount-row） -->
+        <div class="amount-row">
+          <div class="field">
             <label for="m-dosage">用量<span class="required-mark">（必須）</span></label>
-            <input type="text" id="m-dosage" placeholder="例：1" />
+            <!-- 数字だけ（0.5 などの小数も可）。スマホでは数字のキーボードを出す -->
+            <input type="text" id="m-dosage" inputmode="decimal" autocomplete="off" placeholder="例：1" />
           </div>
-          <div class="field unit-picker" id="m-unit-picker" style="flex:1">
+          <div class="field unit-picker" id="m-unit-picker">
             <label for="m-unit">単位<span class="required-mark">（必須）</span></label>
             <!-- 選択肢は js/pages/medications.js の UNIT_OPTIONS から作る -->
             <select id="m-unit" class="unit-select"></select>

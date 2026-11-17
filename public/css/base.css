@@ -225,6 +225,21 @@ img { max-width: 100%; display: block; }
   transform: none;
 }
 
+/* 重ねて開く画面（撮影・記録の編集・お薬の登録など）の右上の「×」。
+   もとは home.css にあり、お薬の画面（home.css を読み込まない）では見た目が付いていなかった */
+.modal-close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-paper-warm);
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: var(--color-ink-soft);
+}
+
 /* ---- フォーム ---- */
 .field { display: flex; flex-direction: column; gap: 0.5rem; }
 .field label {
