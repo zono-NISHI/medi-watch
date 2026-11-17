@@ -94,12 +94,18 @@ function renderLogs(logs) {
     return;
   }
 
-  // 予定時刻の新しい順（降順）に並べる。
+  // 日付は新しい順（今日が一番上）、同じ日の中は予定時刻の早い順（朝→夜）に並べる。
+  // 1日の中はホーム画面の「今日の予定」と同じ並びにして、朝から順に読めるようにする。
   // 記録した時刻を基準にすると、昨日の分をあとから直したときに「今日」のまとまりへ移ってしまうため、
   // 状態を変えても位置が変わらないよう、常に予定時刻を基準にする
-  const sorted = [...logs].sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
+  const sorted = [...logs].sort((a, b) => {
+    const dayA = jstDateKey(a.scheduled_at);
+    const dayB = jstDateKey(b.scheduled_at);
+    if (dayA !== dayB) return dayA < dayB ? 1 : -1;
+    return new Date(a.scheduled_at) - new Date(b.scheduled_at);
+  });
 
-  // 予定の日付（日本時間）ごとにまとめる。降順に並べ済みなので、日付が変わったら次のまとまりにする
+  // 予定の日付（日本時間）ごとにまとめる。日付順に並べ済みなので、日付が変わったら次のまとまりにする
   const days = [];
   for (const log of sorted) {
     const key = jstDateKey(log.scheduled_at);
