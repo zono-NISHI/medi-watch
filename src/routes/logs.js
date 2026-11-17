@@ -174,9 +174,10 @@ router.patch(
 
 // ----------------------------------------------------------
 // POST /api/logs/take-many ・ POST /api/logs/skip-many
-// 同じ時刻のお薬など、複数の記録をまとめて「飲んだ」「スキップ」にする（ホーム・アラームから）。
-// 同じ時刻のお薬は実際には一度に飲むことが多いので、1 回撮った映像を、まとめて記録したお薬すべてに付ける。
-// 家族への通知は、お薬の数だけ届かないよう 1 通にまとめる。
+// 複数の記録をまとめて「飲んだ」「スキップ」にする。
+// いまの画面はお薬を 1 つずつ記録する（撮影もお薬ごと）ので使っていない。
+// 一時期の版（同じ時刻のお薬を 1 回の撮影でまとめて記録していた版）のアプリが、まだ端末に残っている場合に備えて残している。
+// 家族への通知は、どのお薬のお知らせかが分かるよう、記録 1 つにつき 1 通送る。
 // body: { log_ids: [記録ID, ...], video_url? }
 //  - video_url は、まとめて記録する記録のどれか 1 つの映像の保存先（{本人のID}/{記録ID}.mp4）だけを受け付ける
 //    （video-upload-url で発行した保存先。ほかの人の映像や、関係のない場所を指させないため）
@@ -214,11 +215,12 @@ async function recordMany(req, res, status) {
     return res.status(404).json({ code: 'NOT_FOUND', error: '記録できる服薬記録が見つかりません。' });
   }
 
-  // 家族への通知は 1 通にまとめる（映像があれば、映像の付いた記録を開けるようにする）
+  // 家族への通知は、お薬（記録）ごとに 1 通ずつ送る
   const type = status === 'skipped' ? 'medication_skipped' : videoUrl ? 'video_recorded' : 'medication_taken';
-  const notifyLog = logs.find((l) => videoUrl && l.video_url === videoUrl) || logs[0];
-  notifyCareGroup({ patientId: req.user.id, logId: notifyLog.id, type })
-    .catch((e) => console.error('[notify] まとめて記録した通知の送信に失敗:', e));
+  logs.forEach((l) =>
+    notifyCareGroup({ patientId: req.user.id, logId: l.id, type })
+      .catch((e) => console.error('[notify] まとめて記録した通知の送信に失敗:', e))
+  );
 
   res.json({ logs });
 }
@@ -320,8 +322,8 @@ router.get(
     if (logErr) return sendSupabaseError(res, logErr, '服薬記録が見つかりません。');
     if (!log.video_url) return res.status(404).json({ error: 'この記録に映像はありません。' });
 
-    // まとめて記録したお薬は、1 つの映像（そのうち 1 つの記録の保存先）を共有しているので、
-    // 記録に保存した保存先を使う。本人のフォルダの中だけを受け付け、それ以外は記録ID から決める（以前の記録と同じ）
+    // 一時期の版でまとめて記録したお薬は、1 つの映像（そのうち 1 つの記録の保存先）を共有しているので、
+    // 記録に保存した保存先を使う。本人のフォルダの中だけを受け付け、それ以外は記録ID から決める（ふだんの記録と同じ）
     const saved = String(log.video_url);
     const path =
       saved.startsWith(`${log.patient_id}/`) && saved.endsWith('.mp4') && !saved.includes('..')

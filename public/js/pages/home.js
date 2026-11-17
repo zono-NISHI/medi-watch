@@ -3,7 +3,8 @@
 //  - 「自分」と「見守っているご家族」を上部のボタンで切り替えて表示
 //    （1つのアカウントで見守る側・見守られる側の両方を行えるため）
 //  - 本日の服薬スケジュールを表示
-//  - 服薬時刻になったらアラーム（js/alarm.js）で知らせ、内向きカメラを起動できる
+//  - 服薬時刻になったらアラーム（js/alarm.js）で知らせ、内向きカメラを起動できる（撮影・記録はお薬 1 つずつ）
+//  - 家族への通知をタップして開いたときは、そのお知らせのお薬のカードまで動かし、跳ねさせて示す
 //  - 撮影した映像は Supabase Storage に署名付きURLでアップロード
 // ============================================================
 
@@ -17,19 +18,27 @@ const profile = Session.profile();
 // ---- 表示する人（自分／見守っているご家族）は js/viewTarget.js の ViewTarget で管理する ----
 const SELF_TARGET = { id: profile.id, isSelf: true, canViewVideo: true };
 
-// 服薬アラーム（js/alarm.js・ネイティブ版の端末のアラーム）の「カメラを起動する」から来たとき
-// （?take=スケジュールID,スケジュールID…。知らせていたお薬すべて。1 回の撮影でまとめて記録する）
-// ?pick= は、そのうち記録するお薬（アプリの中のアラームでチェックしたもの）。無ければ、いちばん新しい時刻のお薬にチェックを付ける
+// 服薬アラーム（js/alarm.js・ネイティブ版の端末のアラーム）の「カメラを起動する」から来たとき（?take=スケジュールID）
+// （一時期の版は「,」でつないで複数のお薬を渡していた。そのときは最初のお薬を撮影し、残りはアラームが続けて知らせる）
 const urlParams = new URLSearchParams(location.search);
-const takeFromUrl = urlParams.get('take') ? urlParams.get('take').split(',').filter(Boolean) : null;
-const pickFromUrl = urlParams.get('pick') ? urlParams.get('pick').split(',').filter(Boolean) : null;
+const takeFromUrl = (urlParams.get('take') || '').split(',').filter(Boolean)[0] || null;
 // ネイティブ版の端末のアラームの「飲みました（映像なしで記録する）」から来たとき（?record=スケジュールID）
 // 開いただけで記録される入り口なので、ネイティブ版でだけ受け付ける
 // （ブラウザ版で受け付けると、細工したリンクを開かせるだけで「飲んだ」と記録させられてしまう）
 const recordParam = urlParams.get('record');
 const recordFromUrl = window.APP_CONFIG?.IS_NATIVE_APP ? recordParam : null;
+// 家族への通知をタップして開いたとき（?view=見守っている人のID&focus=記録ID。js/push.js・sw.js）。
+// そのお知らせのお薬のカードまで動かし、跳ねさせて示す（どのお薬の通知かが分かるように）
+const focusLogId = urlParams.get('focus');
 // 読み直したときに、もう一度始めないよう URL から外す（?view= など、ほかの指定があるときは触らない）
-if (takeFromUrl || recordParam) history.replaceState(null, '', location.pathname);
+if (takeFromUrl || recordParam) {
+  history.replaceState(null, '', location.pathname);
+} else if (focusLogId) {
+  // ?view= は ViewTarget.init が読んでから外すので、ここでは focus だけを外す
+  const rest = new URLSearchParams(location.search);
+  rest.delete('focus');
+  history.replaceState(null, '', location.pathname + (rest.toString() ? `?${rest}` : ''));
+}
 // アラームから来て、撮影画面を開く（または記録が済む）までのあいだ true。このあいだは画面のアラームを出さない
 // （撮影画面より先に、アラームの画面が一瞬出てしまうため）
 let takePending = !!takeFromUrl || !!recordFromUrl;
@@ -37,7 +46,7 @@ let takePending = !!takeFromUrl || !!recordFromUrl;
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
-let takeItems = []; // 撮影画面で記録するお薬 [{ scheduleId, logId, med, time, checked }]
+let takeItem = null; // 撮影画面で記録するお薬 { scheduleId, logId, med }
 let lastMerged = []; // 最後に表示した自分の予定（アラームから撮影を始めるときに使う）
 
 document.getElementById('today-label').textContent = new Date().toLocaleDateString('ja-JP', {
@@ -100,9 +109,11 @@ ViewTarget.init()
   .catch((err) => console.error(err))
   .finally(async () => {
     await runPoll();
+    // 見守りが終わっていて自分の予定を出しているとき（ViewTarget が知らせる）は、カードを探さない
+    if (focusLogId && !takeFromUrl && !recordFromUrl && !ViewTarget.get()?.isSelf) showNotifiedCard(focusLogId);
     if (!takeFromUrl && !recordFromUrl) return;
     try {
-      if (takeFromUrl) await startTakeFromAlarm(takeFromUrl, pickFromUrl);
+      if (takeFromUrl) await startTakeFromAlarm(takeFromUrl);
       else await recordWithoutVideoFromAlarm(recordFromUrl);
     } catch (err) {
       console.error(err);
@@ -116,50 +127,25 @@ ViewTarget.init()
 // 服薬アラーム：ホームでは画面を移らずに、この画面の撮影モーダルを開く
 MedAlarm.start({
   isBusy: () => modal.open || takePending,
-  // 知らせていたお薬すべてを撮影画面に並べ、チェックしたお薬（selected）にチェックを付けて、カメラを起動する
-  onStartCamera: (selected, all) => {
+  // 押したお薬（1 つ）の撮影画面を開いて、カメラを起動する
+  onStartCamera: ({ schedule, log }) => {
     if (!ViewTarget.get()?.isSelf) {
       ViewTarget.select(profile.id);
       renderViewHeader();
       runPoll();
     }
-    const pick = new Set(selected.map(({ schedule }) => schedule.id));
-    openTakeModal(
-      all.map(({ schedule, log }) => ({
-        scheduleId: schedule.id,
-        logId: log?.id,
-        med: schedule.medications,
-        time: schedule.scheduled_time,
-        checked: pick.has(schedule.id),
-      }))
-    )
+    openTakeModal({ scheduleId: schedule.id, logId: log?.id, med: schedule.medications })
       .then(() => startCameraBtn.click())
       .catch((err) => handleApiError(err, '撮影画面を開けませんでした。'));
   },
   onRecorded: () => loadTodaySchedules().catch(() => {}),
 });
 
-// アラームの「カメラを起動する」から来たとき。まだ記録していないお薬を撮影画面に並べて、カメラを起動する
-// pickIds が無いとき（ネイティブ版の端末のアラームから来たとき）は、いちばん新しい時刻のお薬にチェックを付け、
-// 前の時刻から残っているお薬は外しておく（アプリの中のアラームと同じ考え方）
-async function startTakeFromAlarm(scheduleIds, pickIds) {
-  const found = scheduleIds
-    .map((id) => lastMerged.find(({ schedule }) => schedule.id === id))
-    .filter((item) => item && (!item.log?.status || item.log.status === 'pending'));
-  if (found.length === 0) return;
-  const times = found.map(({ schedule }) => todayAt(schedule.scheduled_time).getTime());
-  const latest = Math.max(...times);
-  let checks = found.map(({ schedule }, i) => (pickIds ? pickIds.includes(schedule.id) : times[i] === latest));
-  if (!checks.some(Boolean)) checks = times.map((t) => t === latest);
-  await openTakeModal(
-    found.map(({ schedule, log }, i) => ({
-      scheduleId: schedule.id,
-      logId: log?.id,
-      med: schedule.medications,
-      time: schedule.scheduled_time,
-      checked: checks[i],
-    }))
-  );
+// アラームの「カメラを起動する」「カメラで記録する」から来たとき。そのお薬の撮影画面を開いて、カメラを起動する
+async function startTakeFromAlarm(scheduleId) {
+  const item = lastMerged.find(({ schedule }) => schedule.id === scheduleId);
+  if (!item || (item.log?.status && item.log.status !== 'pending')) return; // もう記録してある（ほかの端末で記録した など）
+  await openTakeModal({ scheduleId, logId: item.log?.id, med: item.schedule.medications });
   startCameraBtn.click();
 }
 
@@ -327,8 +313,11 @@ function renderSchedules(merged, target, hasSchedules) {
       //   2段目: お薬の名前
       //   3段目: どのくらい・いつ
       //   4段目: ボタン（あるときだけ。横幅いっぱい）
+      // 家族への通知をタップして開いたときの、そのお知らせのお薬（showNotifiedCard）
+      const notified = !!notifiedLogId && log?.id === notifiedLogId;
       return `
-        <div class="schedule-card ${status === 'taken' ? 'is-taken' : ''} ${isOverdue ? 'is-overdue' : ''}">
+        <div class="schedule-card ${status === 'taken' ? 'is-taken' : ''} ${isOverdue ? 'is-overdue' : ''} ${notified ? 'is-notified' : ''}" data-log-id="${log?.id || ''}">
+          ${notified ? '<span class="notified-tag">🔔 お知らせのお薬</span>' : ''}
           <div class="schedule-head">
             <div class="schedule-time">${formatTime(schedule.scheduled_time)}</div>
             ${statusBadge}
@@ -341,15 +330,53 @@ function renderSchedules(merged, target, hasSchedules) {
     .join('');
 
   container.querySelectorAll('[data-action="take"]').forEach((btn) => {
-    // ホームの一覧から開くときは、そのお薬だけを記録する
     btn.addEventListener('click', () =>
-      openTakeModal([{ scheduleId: btn.dataset.scheduleId, logId: btn.dataset.logId, medName: btn.dataset.medName }])
+      openTakeModal({ scheduleId: btn.dataset.scheduleId, logId: btn.dataset.logId, medName: btn.dataset.medName })
         .catch((err) => handleApiError(err, '撮影画面を開けませんでした。'))
     );
   });
   container.querySelectorAll('[data-action="view-video"]').forEach((btn) => {
     btn.addEventListener('click', () => viewVideo(btn.dataset.logId));
   });
+}
+
+// ---- 家族への通知をタップして開いたとき ----
+// そのお知らせのお薬のカードに枠と「お知らせのお薬」の札を付け、画面の中ほどまで動かしてから、ぴょこんと跳ねさせる。
+// 枠と札は、しばらく（NOTIFIED_MS）付けたままにする（30秒ごとの読み直しで描き直しても消えないよう、記録ID で覚えておく）
+const NOTIFIED_MS = 60 * 1000;
+let notifiedLogId = null;
+let notifiedTimer = null;
+
+function showNotifiedCard(logId) {
+  const card = [...document.querySelectorAll('.schedule-card[data-log-id]')].find((el) => el.dataset.logId === logId);
+  if (!card) {
+    // 一覧を読み込めなかったときは、何も言わない（「読み込みに失敗しました」が出ている）
+    if (!document.querySelector('#schedule-list .schedule-card, #schedule-list .empty-state')) return;
+    // 前の日のお知らせ・時刻を変える前の予定のお知らせなど、今日の一覧に無いお薬
+    showToast('このお知らせのお薬は、今日の一覧にはありません。下の「記録」から確かめられます。', 'info', 8000);
+    return;
+  }
+  notifiedLogId = logId;
+  card.classList.add('is-notified');
+  if (!card.querySelector('.notified-tag')) {
+    card.insertAdjacentHTML('afterbegin', '<span class="notified-tag">🔔 お知らせのお薬</span>');
+  }
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // 動かし終わってから跳ねさせる（動いている最中に跳ねても気付きにくいため）
+  setTimeout(() => {
+    card.classList.remove('is-bouncing');
+    void card.offsetWidth; // 付け直したときも、もう一度跳ねるようにする
+    card.classList.add('is-bouncing');
+    card.addEventListener('animationend', () => card.classList.remove('is-bouncing'), { once: true });
+  }, 600);
+  clearTimeout(notifiedTimer);
+  notifiedTimer = setTimeout(() => {
+    notifiedLogId = null;
+    document.querySelectorAll('.schedule-card.is-notified').forEach((el) => {
+      el.classList.remove('is-notified');
+      el.querySelector('.notified-tag')?.remove();
+    });
+  }, NOTIFIED_MS);
 }
 
 // スケジュールに対応する今日の記録。服薬済み・スキップか、今の服薬時刻と同じ予定時刻の記録だけを対応させる
@@ -400,10 +427,8 @@ function speakReminder(meds) {
 }
 
 // ---- 服薬モーダル ----
-// 1 つのお薬だけでなく、同じ時刻のお薬など複数のお薬を、1 回の撮影（または映像なし・スキップ）でまとめて記録できる。
-// 同じ時刻のお薬は、実際には一度に飲むことが多いため（以前は、お薬の数だけ撮影が必要だった）。
-// お薬が 2 つ以上のときは「記録するお薬」をチェックで並べ、チェックしたお薬だけを記録する
-// （飲んでいないお薬まで「飲んだ」にならないように。前の時刻から残っているお薬は、最初はチェックを外しておく）
+// お薬 1 つずつ撮影して記録する（同じ時刻のお薬が 2 つ以上あるときも、お薬ごとに撮影する。
+// 録画は30秒なので、1 回で何種類も飲むのは慌ただしく、映像も、見守る家族がお薬ごとに見分けられるようにするため）
 const modal = document.getElementById('take-modal');
 const videoEl = document.getElementById('camera-preview');
 const placeholderEl = document.getElementById('camera-placeholder');
@@ -413,9 +438,6 @@ const finishTakeBtn = document.getElementById('finish-take-btn');
 const takeWithoutVideoBtn = document.getElementById('take-without-video-btn');
 const skipBtn = document.getElementById('skip-btn');
 const uploadStatus = document.getElementById('upload-status');
-const takeMedsEl = document.getElementById('take-meds');
-const takeMedsList = document.getElementById('take-meds-list');
-const takeMedsHint = document.getElementById('take-meds-hint');
 
 // 録画は長くても30秒で自動的に止め、そのまま「服薬済み（映像つき）」として記録する
 // （「飲みました」の押し忘れで録画が続くと、保存先の上限 50MB を超えて映像が保存できなくなるため）
@@ -426,39 +448,27 @@ let finishing = false; // 自動の記録とボタンの記録が重ならない
 
 const takeSubEl = document.getElementById('take-modal-sub');
 
-// list: [{ scheduleId, logId?, med?, time?, checked? }]
-//   med  … { name, dosage, unit }（省略時は、表示中の予定から探す）
-//   time … 服薬時刻（"08:00:00"。省略時は、表示中の予定から探す）
-//   checked … 記録するか（省略時は記録する）
-async function openTakeModal(list) {
-  takeItems = list.map((it) => {
-    const schedule = lastMerged.find(({ schedule: s }) => s.id === it.scheduleId)?.schedule;
-    return {
-      scheduleId: it.scheduleId,
-      logId: it.logId || null,
-      med: it.med || schedule?.medications || { name: it.medName },
-      time: it.time || schedule?.scheduled_time || '',
-      checked: it.checked !== false,
-    };
-  });
+// { scheduleId, logId?, med?, medName? }
+//   med … { name, dosage, unit }（省略時は、表示中の予定から探す）
+async function openTakeModal({ scheduleId, logId, med, medName }) {
+  const schedule = lastMerged.find(({ schedule: s }) => s.id === scheduleId)?.schedule;
+  takeItem = {
+    scheduleId,
+    logId: logId || null,
+    med: med || schedule?.medications || { name: medName },
+  };
   // その日の記録がまだ無い予定は、ここで作っておく
-  await Promise.all(
-    takeItems.map(async (it) => {
-      if (!it.logId) it.logId = await ensureLogExists(it.scheduleId);
-    })
-  );
+  if (!takeItem.logId) takeItem.logId = await ensureLogExists(scheduleId);
 
-  document.getElementById('take-modal-title').textContent =
-    takeItems.length > 1 ? 'お薬を服用しましょう' : `「${takeItems[0].med?.name || 'お薬'}」を服用しましょう`;
+  document.getElementById('take-modal-title').textContent = `「${takeItem.med?.name || 'お薬'}」を服用しましょう`;
   uploadStatus.textContent = '';
-  renderTakeMeds();
   resetCameraUi();
 
   modal.showModal();
   // ネイティブ版：お薬の時間になっている予定を、端末のアラームの「記録待ち」にする
   // （鳴っていれば音が止まる。記録しないままアプリを離れたら、端末のアラームが引き継いで鳴らす）
   MedAlarm.holdDue();
-  speakReminder(checkedTakeItems().map((it) => it.med));
+  speakReminder([takeItem.med]);
 }
 
 async function ensureLogExists(scheduleId) {
@@ -467,57 +477,6 @@ async function ensureLogExists(scheduleId) {
   // cron が作る本来の予定の記録と別物になり「未記録」が残ってしまうため）
   const { log } = await Api.createLog({ schedule_id: scheduleId, date: todayStr() });
   return log.id;
-}
-
-// 記録するお薬の一覧（お薬が 2 つ以上のときだけ出す）。服薬時刻がそろっていないときは、時刻も添える
-function renderTakeMeds() {
-  const multi = takeItems.length > 1;
-  const sameTime = new Set(takeItems.map((it) => it.time)).size <= 1;
-  takeMedsEl.hidden = !multi;
-  takeMedsList.innerHTML = multi
-    ? takeItems
-        .map((it, i) => {
-          const amount = `${it.med?.dosage ?? ''}${it.med?.unit ?? ''}`.trim();
-          const time = !sameTime && it.time ? `<span class="take-med-time">${escapeHtml(formatTime(it.time))}</span>` : '';
-          return `
-            <li>
-              <label class="take-med ${it.checked ? '' : 'is-off'}">
-                <input type="checkbox" data-index="${i}" ${it.checked ? 'checked' : ''} />
-                <span>${time}${escapeHtml(it.med?.name || 'お薬')}${amount ? `<span class="take-med-amount">${escapeHtml(amount)}</span>` : ''}</span>
-              </label>
-            </li>`;
-        })
-        .join('')
-    : '';
-  updateTakeButtons();
-}
-
-takeMedsList.addEventListener('change', (e) => {
-  const box = e.target.closest('input[data-index]');
-  const it = box && takeItems[Number(box.dataset.index)];
-  if (!it) return;
-  it.checked = box.checked;
-  box.closest('.take-med')?.classList.toggle('is-off', !box.checked);
-  updateTakeButtons();
-});
-
-function checkedTakeItems() {
-  return takeItems.filter((it) => it.checked);
-}
-
-// 記録するお薬が 1 つも無いときは、記録のボタンを押せないようにする
-function updateTakeButtons() {
-  const none = checkedTakeItems().length === 0;
-  takeMedsHint.hidden = !none;
-  if (finishing) return;
-  finishTakeBtn.disabled = none;
-  takeWithoutVideoBtn.disabled = none;
-  skipBtn.disabled = none;
-}
-
-// 記録したお薬の数に合わせた言い方（1 つ … 「服薬を」、2 つ以上 … 「2つのお薬の服薬を」）
-function recordedPhrase(targets) {
-  return targets.length > 1 ? `${targets.length}つのお薬の服薬を` : '服薬を';
 }
 
 function resetCameraUi() {
@@ -546,7 +505,7 @@ function closeModal() {
   modal.close();
   // お薬の時間になっている予定なら、アラームの「あとで」と同じ扱いにする
   // （閉じた直後にアラームの画面へ戻すと迷う。何もしないと、ネイティブ版では今日はもう鳴らない）
-  if (takeItems.length > 0 && MedAlarm.snoozeIfDue(takeItems.map((it) => it.scheduleId))) {
+  if (takeItem && MedAlarm.snoozeIfDue(takeItem.scheduleId)) {
     showToast(`記録せずに閉じました。${MedAlarm.SNOOZE_MIN}分後にもう一度お知らせします。`, 'info', 6000);
   }
 }
@@ -606,17 +565,9 @@ function startRecordCountdown() {
 finishTakeBtn.addEventListener('click', () => finishTake(false));
 
 // auto: 録画が30秒に達して自動で記録するとき true
-// チェックしたお薬すべてを、1 つの映像でまとめて記録する（映像は 1 回だけアップロードし、どの記録からも見られる）
 async function finishTake(auto) {
-  if (finishing) return;
-  const targets = checkedTakeItems();
-  if (targets.length === 0) {
-    // 30秒たったときに、記録するお薬のチェックが 1 つも無かった。映像は保存せずに録画を止める
-    stopCamera();
-    resetCameraUi();
-    showToast('記録するお薬にチェックが入っていないため、録画を止めました。', 'error');
-    return;
-  }
+  if (finishing || !takeItem) return;
+  const target = takeItem;
   finishing = true;
   clearInterval(recordTimer);
   recordTimer = null;
@@ -627,28 +578,28 @@ async function finishTake(auto) {
     let videoUrl = null;
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       const blob = await stopRecordingAndGetBlob();
-      videoUrl = await uploadVideo(blob, targets[0].logId);
+      videoUrl = await uploadVideo(blob, target.logId);
     }
     stopCamera();
 
-    await Api.takeLogs(targets.map((it) => it.logId), { video_url: videoUrl });
+    await Api.takeLog(target.logId, { video_url: videoUrl });
     showToast(
       auto
-        ? `${MAX_RECORD_SECONDS}秒たったので、${recordedPhrase(targets)}記録しました。ご家族にもお知らせします。`
-        : `${recordedPhrase(targets)}記録しました。ご家族にもお知らせします。`,
+        ? `${MAX_RECORD_SECONDS}秒たったので、服薬を記録しました。ご家族にもお知らせします。`
+        : '服薬を記録しました。ご家族にもお知らせします。',
       'success',
       auto ? 6000 : 3200
     );
     modal.close();
     loadTodaySchedules();
-    // 記録したお薬のアラームを止める（チェックを外したお薬が残っていれば、すぐに続けて知らせる）
-    MedAlarm.markRecorded(targets.map((it) => it.scheduleId));
+    // 記録したお薬のアラームを止める（同じ時刻のお薬が残っていれば、すぐに続けて知らせる）
+    MedAlarm.markRecorded([target.scheduleId]);
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
   } finally {
     finishing = false;
+    finishTakeBtn.disabled = false;
     finishTakeBtn.textContent = '飲みました（映像つきで記録する）';
-    updateTakeButtons();
   }
 }
 
@@ -661,7 +612,6 @@ function stopRecordingAndGetBlob() {
   });
 }
 
-// logId: 映像の保存先を決める記録（まとめて記録するときは、そのうち 1 つ。ほかの記録は同じ映像を使う）
 async function uploadVideo(blob, logId) {
   uploadStatus.textContent = '映像をアップロードしています…';
   try {
@@ -682,44 +632,40 @@ async function uploadVideo(blob, logId) {
 }
 
 takeWithoutVideoBtn.addEventListener('click', async () => {
-  if (finishing) return; // 映像つきの記録（ボタン・30秒の自動）と重ならないようにする
-  const targets = checkedTakeItems();
-  if (targets.length === 0) return;
+  if (finishing || !takeItem) return; // 映像つきの記録（ボタン・30秒の自動）と重ならないようにする
+  const target = takeItem;
   finishing = true;
   takeWithoutVideoBtn.disabled = true;
   finishTakeBtn.disabled = true;
   const wasRecording = !!mediaStream;
   try {
     stopCamera(); // 録画中だった場合、撮った映像は保存せずに捨てる
-    await Api.takeLogs(targets.map((it) => it.logId));
-    showToast(`${wasRecording ? '映像なしで' : ''}${recordedPhrase(targets)}記録しました。`, 'success');
+    await Api.takeLog(target.logId, {});
+    showToast(wasRecording ? '映像なしで服薬を記録しました。' : '服薬を記録しました。', 'success');
     modal.close();
     loadTodaySchedules();
-    MedAlarm.markRecorded(targets.map((it) => it.scheduleId)); // 記録したお薬のアラームを止める
+    MedAlarm.markRecorded([target.scheduleId]); // 記録したお薬のアラームを止める
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
     // カメラは止めたので、録画中だった場合はカメラ起動前の表示に戻す
     if (wasRecording) resetCameraUi();
   } finally {
     finishing = false;
-    updateTakeButtons();
+    takeWithoutVideoBtn.disabled = false;
+    finishTakeBtn.disabled = false;
   }
 });
 
 skipBtn.addEventListener('click', async () => {
-  if (finishing) return;
-  const targets = checkedTakeItems();
-  if (targets.length === 0) return;
+  if (finishing || !takeItem) return;
+  const target = takeItem;
   try {
     stopCamera();
-    await Api.skipLogs(targets.map((it) => it.logId));
-    showToast(
-      targets.length > 1 ? `${targets.length}つのお薬を、今回はスキップとして記録しました。` : '今回はスキップとして記録しました。',
-      'info'
-    );
+    await Api.skipLog(target.logId, {});
+    showToast('今回はスキップとして記録しました。', 'info');
     modal.close();
     loadTodaySchedules();
-    MedAlarm.markRecorded(targets.map((it) => it.scheduleId), 'skipped'); // 記録したお薬のアラームを止める
+    MedAlarm.markRecorded([target.scheduleId], 'skipped'); // 記録したお薬のアラームを止める
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
   }

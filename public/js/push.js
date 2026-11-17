@@ -134,7 +134,9 @@ const PushSetup = (() => {
       if (data.url) {
         location.href = data.url;
       } else if (data.patientId) {
-        location.href = `home.html?view=${encodeURIComponent(data.patientId)}`;
+        // その人のホームを開き、お知らせのお薬（記録）のカードを示す（home.js の showNotifiedCard）
+        const focus = data.logId ? `&focus=${encodeURIComponent(data.logId)}` : '';
+        location.href = `home.html?view=${encodeURIComponent(data.patientId)}${focus}`;
       } else if (data.type) {
         location.href = 'home.html';
       }

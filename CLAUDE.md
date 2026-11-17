@@ -61,7 +61,7 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
   - `createUserClient(token)`: ユーザー権限で RLS が適用される。`requireAuth`（`src/middleware/auth.js`）がこれを `req.supabase` として、`req.user`・`req.accessToken` と一緒に付与する。ルートのハンドラは `req.supabase` 経由でクエリし、アクセス制御を RLS に任せる。
 - ルートの書き方: ハンドラを `asyncHandler` で包み、DB エラーは `sendSupabaseError(res, error, '日本語メッセージ')`（`src/lib/utils.js`）で返す。この関数が PG のエラーコードを HTTP ステータスと `code` に変換する。エラーのレスポンスは `{ code?, error: '<そのまま利用者に見せてよい日本語>' }` の形で、フロントは文言ではなく `code` で分岐する。
 - `src/services/reminderCron.js` は node-cron で毎分、Web プロセス内で動く。処理順は、有効なスケジュールから今日の `pending` の `medication_logs` を作成 → 患者へリマインド通知 → `scheduled_at` から30分過ぎても pending のままのログについて家族へ「まだお薬の記録がありません」の通知（type は `medication_missed`。`notification_logs` で二重送信を防ぐ）。本人のスキップは別の種類（`medication_skipped`、「スキップ：○○さん」）で、`src/routes/logs.js` からすぐ送る。アラームの「あとで」はサーバーに伝わらない（ブラウザの localStorage と端末の中だけで持つ）。**日付・時刻はすべて JST（`+09:00`）で扱う。** Render などのサーバーは UTC で動くため。
-- `src/services/notificationService.js` がプッシュ通知を送信する（`notifyCareGroup`, `sendToSubscription`, `vapidConfigured`, `fcmConfigured`）。宛先（`push_subscriptions.kind`）がブラウザ（`webpush`）なら `web-push`、ネイティブ版（`fcm`）なら `firebase-admin` で送る。cron の「お薬の時間です」のリマインドは `webpush` の端末だけに送る（ネイティブ版は端末のアラームが知らせるため）。`src/services/jahisParser.js` は薬局の JAHIS 形式の QR コードを解析する。
+- `src/services/notificationService.js` がプッシュ通知を送信する（`notifyCareGroup`, `sendToSubscription`, `vapidConfigured`, `fcmConfigured`）。宛先（`push_subscriptions.kind`）がブラウザ（`webpush`）なら `web-push`、ネイティブ版（`fcm`）なら `firebase-admin` で送る。cron の「お薬の時間です」のリマインドは `webpush` の端末だけに送る（ネイティブ版は端末のアラームが知らせるため）。家族への服薬の通知は記録（お薬）1つにつき1通で、本文にお薬の時刻と名前を入れる。通知をタップすると `home.html?view=<本人のID>&focus=<記録ID>` が開き、ホームがそのお薬のカードを跳ねさせて示す（`sw.js`・`push.js`・`home.js` の `showNotifiedCard`）。`src/services/jahisParser.js` は薬局の JAHIS 形式の QR コードを解析する。
 
 ### データベース（`src/supabase/migrations/`）
 - マイグレーションツールは使っていない。番号つきの各 `.sql` を Supabase の SQL Editor に貼り付けて、番号順（0001 → 0002 → …）に実行する。スキーマ変更は次の番号のファイルとして追加し、既存ファイルと同じヘッダーコメント（目的・実行場所・前提となるマイグレーション）を付ける。
@@ -79,7 +79,7 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - `api.js`: `Session`（localStorage のキー `okusuri_techo_session`）、`ApiError`（`code`/`status`/`field`）、fetch のラッパー。`/api/auth/refresh` でアクセストークンを自動更新する。更新処理は1つだけ実行して共有するため、同時に複数のリクエストがあってもリフレッシュトークンを使い切らない。
 - `ui.js`: トースト、`handleApiError`、`requireLoginOrRedirect`、ナビゲーション。
 - `viewTarget.js`（`ViewTarget`）: 表示する人（自分／見守っている家族）の切り替え。選んだ人は localStorage に保存し、ホーム・お薬・記録のタブで共有する。家族の表示中は `body.is-watching` になり、配色が変わる。
-- `alarm.js`（`MedAlarm`）: アプリを画面に表示しているあいだの服薬アラーム。各ページで `MedAlarm.start()` を呼ぶ。服薬時刻から60分以内の未記録の予定について、全画面の表示と繰り返しの音を出す。お薬が2つ以上のときはチェックで選び、1回の撮影（`POST /api/logs/take-many`。映像は1つを共有し、家族への通知は1通）でまとめて記録する。ホーム以外で「カメラを起動する」を押すと `home.html?take=<スケジュールID,…>&pick=<チェックしたID,…>` へ移動する。
+- `alarm.js`（`MedAlarm`）: アプリを画面に表示しているあいだの服薬アラーム。各ページで `MedAlarm.start()` を呼ぶ。服薬時刻から60分以内の未記録の予定について、全画面の表示と繰り返しの音を出す。お薬が2つ以上のときは、お薬ごとに「カメラで記録する」「映像なし」のボタンを並べ、撮影・記録・家族への通知はお薬1つずつ行う（記録すると `markRecorded` で残りのお薬をすぐ出し直す）。ホーム以外でカメラのボタンを押すと `home.html?take=<スケジュールID>` へ移動する。`POST /api/logs/take-many`・`skip-many` は、一時期の版のアプリのためだけに残している（通知は記録ごとに送る）。
 - `sw.js` は `public/` の直下に置いたままにする。アプリ全体をスコープに含めるため。
 - `alarm.js` の `NativeAlarm` は、ネイティブ版のときだけ動く（Web 版では何もしない）。`MedAlarm` が予定を取得するたびに `NativeAlarm.sync()` で端末のアラームを予約し直す。アプリの中で知らせているお薬は `NativeAlarm.setAppAlarm()` で端末に伝え、記録しないままアプリを離れると、`MainActivity` の onStop（`AlarmRinger.onAppHidden`）で端末のアラームが約5秒後に引き継いで鳴らす。ネイティブ版かどうかは `APP_CONFIG.IS_NATIVE_APP`（`config.js`）で判定する。
 - 高齢の利用者を想定しているので、平易で丁寧な日本語の文言と、大きく分かりやすい UI を優先する。

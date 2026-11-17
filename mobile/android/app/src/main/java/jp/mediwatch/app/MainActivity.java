@@ -9,12 +9,10 @@ import jp.mediwatch.app.alarm.MediAlarmPlugin;
 
 /**
  * アプリ本体の画面。public/ の Web 画面を WebView で表示する（Capacitor）。
- * アラームの「カメラを起動する」から開かれたときは、ホームで撮影を始める
- * （home.html?take=スケジュールID,スケジュールID…。鳴っていたお薬すべてを、1 回の撮影でまとめて記録する。
- *   Web 版のアラームと同じ入り口）。
- * アラームの「飲みました（映像なしで記録する）」から開かれたときは、ホームで映像なしの記録をする
- * （home.html?record=スケジュールID）。お薬が 2 つ以上のときは、ホームを開くだけにして、
- * アプリの中の「お薬の時間です」の画面で、お薬ごとに選んでもらう。
+ * アラームの「カメラを起動する」「カメラで記録する」から開かれたときは、ホームでそのお薬の撮影を始める
+ * （home.html?take=スケジュールID。Web 版のアラームと同じ入り口）。
+ * アラームの「飲みました（映像なしで記録する）」から開かれたときは、ホームでそのお薬の映像なしの記録をする
+ * （home.html?record=スケジュールID）。撮影・記録はお薬 1 つずつで、残りのお薬はアプリの中のアラームが続けて知らせる。
  */
 public class MainActivity extends BridgeActivity {
 
@@ -66,12 +64,10 @@ public class MainActivity extends BridgeActivity {
         String takeId = intent.getStringExtra(AlarmRinger.EXTRA_TAKE);
         String recordId = intent.getStringExtra(AlarmRinger.EXTRA_RECORD);
         long recordAt = intent.getLongExtra(AlarmRinger.EXTRA_RECORD_AT, 0);
-        boolean choose = intent.getBooleanExtra(AlarmRinger.EXTRA_CHOOSE, false);
         // 画面を回転したときなどに、もう一度開かないようにする
         intent.removeExtra(AlarmRinger.EXTRA_TAKE);
         intent.removeExtra(AlarmRinger.EXTRA_RECORD);
         intent.removeExtra(AlarmRinger.EXTRA_RECORD_AT);
-        intent.removeExtra(AlarmRinger.EXTRA_CHOOSE);
 
         // 古い「映像なしで記録」の頼みは実行しない（RECORD_REQUEST_MAX_AGE_MS を参照）
         long age = System.currentTimeMillis() - recordAt;
@@ -82,8 +78,6 @@ public class MainActivity extends BridgeActivity {
             page = "/home.html?take=" + Uri.encode(takeId);
         } else if (recordId != null) {
             page = "/home.html?record=" + Uri.encode(recordId);
-        } else if (choose) {
-            page = "/home.html"; // アプリの中の「お薬の時間です」の画面が、お薬ごとのボタンを出す
         } else {
             return;
         }

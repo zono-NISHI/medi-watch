@@ -46,12 +46,13 @@ import jp.mediwatch.app.R;
  * 服薬時刻に画面いっぱいに出すアラーム画面。
  * ロック中でも表示し（showWhenLocked）、画面が消えていれば点ける（turnScreenOn）。
  *
- * - 「カメラを起動する」… ロックを解除して、アプリのホームで撮影を始める
- *                         （お薬が 2 つ以上のときは、鳴っているお薬すべてを 1 回の撮影でまとめて記録する。
- *                          どのお薬を記録するかは、撮影画面のチェックで選ぶ。ボタンにも「2つのお薬をまとめて記録します」と添える。
- *                          以前は、いちばん上のお薬だけを撮影していた。記録しないままになった予定は、5 分後にもう一度鳴らす）
- * - 「飲みました（映像なしで記録する）」… ロックを解除して、アプリのホームで映像なしの記録をする
- *                         （お薬が 2 つ以上のときは、アプリの中の画面で、記録するお薬にチェックを付けてもらう。onNoVideo を参照）
+ * - 「カメラを起動する」… ロックを解除して、アプリのホームで、そのお薬の撮影を始める
+ * - 「飲みました（映像なしで記録する）」… ロックを解除して、アプリのホームで、そのお薬を映像なしで記録する
+ * - お薬が 2 つ以上のときは、お薬ごとに「カメラで記録する」「飲みました（映像なしで記録する）」のボタンを並べ、
+ *   1 つずつ記録してもらう（アプリの中のアラームと同じ。1 つ記録すると、残りのお薬はアプリの中のアラームが続けて知らせる）。
+ *   一時期は鳴っているお薬すべてを 1 回の撮影でまとめて記録していたが、録画は30秒なので何種類も飲むのは慌ただしく、
+ *   映像と家族への通知がお薬ごとに分かれていないと、見守る家族がどのお薬かを見分けられないため、お薬ごとに戻した。
+ *   以前（さらに前）は大きな「カメラを起動する」1 つで、いちばん上のお薬だけを撮影していたので、どのお薬に効くのかが分からなかった
  * - 「あとで（5分後）」 … 音を止め、5 分後にもう一度鳴らす。お薬が 2 つ以上のときは「あとで（2つとも…）」と、
  *                         どれも「あとで」になることをボタンに書き、押したあとは「08:25 に、もう一度お知らせします」と
  *                         お薬の名前を数秒出してから閉じる（どのお薬がいつ知らされるのかを確かめられるように）
@@ -62,9 +63,9 @@ import jp.mediwatch.app.R;
  * 端末のアラームのあとに、アプリの中のアラームが続けて出ることがあり（同じ時刻のお薬の 2 つ目など）、
  * 同じ「お薬の時間です」が別のお知らせに見えないようにするため。
  * ボタンの並び（カメラ → 映像なし → あとで）も同じ。ただし、この画面はロック中にも出て、ログインの情報を持たないので、
- * 自分ではサーバーに記録しない。「映像なし」はアプリを開いて記録してもらい、お薬ごとのボタンは置かない。
- * スキップのボタンも置かず（押し間違えると、家族に「飲み忘れの可能性」と知らせが行くため）、
- * 「カメラを起動する」で開く撮影画面から選べることを 1 行で添える。
+ * 自分ではサーバーに記録しない。「映像なし」もアプリを開いて記録してもらう。
+ * スキップのボタンも置かず（押し間違えると、すぐ家族に知らせが行くため）、
+ * 撮影画面から選べることを 1 行で添える。
  *
  * 画面の上から順に、「いまの時刻 08:20」（小さめ）→「08:00 に飲む」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
  * 大きな時刻は「飲む予定の時刻」なので、「あとで」のあとなどは、いまの時刻とずれる。
@@ -112,7 +113,13 @@ public class AlarmActivity extends AppCompatActivity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView timeView;
     private TextView medsView;
-    private TextView cameraSubView;
+    /** お薬が 1 つのときの大きな「カメラを起動する」と「映像なし」（2 つ以上のときは隠し、itemsView のお薬ごとのボタンを出す） */
+    private View cameraView;
+    private Button noVideoButton;
+    /** お薬が 2 つ以上のときの、お薬ごとの枠とボタン（onResume で作り直す） */
+    private LinearLayout itemsView;
+    private TextView multiNoteView;
+    private TextView skipNoteView;
     private Button snoozeButton;
     /** 「あとで」の確認を出しているあいだ true（このあいだは、アラームが止まっても閉じない） */
     private boolean confirming = false;
@@ -190,11 +197,22 @@ public class AlarmActivity extends AppCompatActivity {
         // 大きな時刻は、いちばん新しい服薬時刻（前の時刻から残っているお薬には、一覧の中でその時刻を添える）
         AlarmStore.Schedule latest = AlarmRinger.latestSchedule(store, items);
         timeView.setText(latest != null ? scheduledTimeText(latest.timeText()) : "");
-        medsView.setText(medsText(store, items));
-        // お薬が 2 つ以上のときは、カメラでまとめて記録すること・「あとで」がどれにも効くことをボタンに書く
+        // お薬が 1 つ … お薬の名前と、大きな「カメラを起動する」「映像なし」
+        // お薬が 2 つ以上 … お薬ごとの枠に「カメラで記録する」「映像なし」を並べる。「あとで」は、どれにも効くことをボタンに書く
         boolean multi = items.size() > 1;
-        cameraSubView.setVisibility(multi ? View.VISIBLE : View.GONE);
-        cameraSubView.setText(items.size() + "つのお薬をまとめて記録します");
+        medsView.setVisibility(multi ? View.GONE : View.VISIBLE);
+        cameraView.setVisibility(multi ? View.GONE : View.VISIBLE);
+        noVideoButton.setVisibility(multi ? View.GONE : View.VISIBLE);
+        multiNoteView.setVisibility(multi ? View.VISIBLE : View.GONE);
+        itemsView.setVisibility(multi ? View.VISIBLE : View.GONE);
+        if (multi) {
+            renderItems(store, items);
+        } else {
+            medsView.setText(medsText(store, items));
+        }
+        skipNoteView.setText(multi
+            ? "飲まないときは、「カメラで記録する」の先で選べます。"
+            : "飲まないときは、「カメラを起動する」の先で選べます。");
         snoozeButton.setText(AlarmRinger.snoozeLabel(items.size(), true));
     }
 
@@ -242,31 +260,39 @@ public class AlarmActivity extends AppCompatActivity {
         controller.hide(WindowInsetsCompat.Type.statusBars());
     }
 
-    /** 鳴っているお薬すべてを、アプリの撮影画面で 1 回の撮影でまとめて記録する（記録するお薬は、撮影画面のチェックで選ぶ） */
+    /** 大きな「カメラを起動する」（お薬が 1 つのとき） */
     private void onCamera() {
-        List<String> ids = AlarmRinger.ringingIds(this);
-        if (ids.isEmpty()) {
+        List<AlarmStore.Item> ringing = new AlarmStore(this).ringing();
+        if (ringing.isEmpty()) {
             finish();
             return;
         }
-        afterUnlock(() -> openApp(AlarmRinger.takeIntent(this, ids)));
+        onCamera(ringing.get(0).id);
     }
 
-    /**
-     * 「飲みました（映像なしで記録する）」… ロックを解除して、アプリのホームで記録する。
-     * この画面はログインの情報を持たないので、記録はアプリの画面（public/js/pages/home.js）に任せる。
-     * - お薬が 1 つ   … そのお薬を、映像なしで記録する
-     * - お薬が 2 つ以上 … アプリを開き、アプリの中の「お薬の時間です」の画面で、飲んだお薬にチェックを付けて記録してもらう
-     */
+    /** そのお薬を、アプリの撮影画面で撮影して記録する */
+    private void onCamera(String scheduleId) {
+        afterUnlock(() -> openApp(AlarmRinger.takeIntent(this, scheduleId)));
+    }
+
+    /** 大きな「飲みました（映像なしで記録する）」（お薬が 1 つのとき） */
     private void onNoVideo() {
         List<AlarmStore.Item> ringing = new AlarmStore(this).ringing();
         if (ringing.isEmpty()) {
             finish();
             return;
         }
-        String id = ringing.size() == 1 ? ringing.get(0).id : null;
+        onNoVideo(ringing.get(0).id);
+    }
+
+    /**
+     * 「飲みました（映像なしで記録する）」… ロックを解除して、アプリのホームで、そのお薬を映像なしで記録する。
+     * この画面はログインの情報を持たないので、記録はアプリの画面（public/js/pages/home.js）に任せる。
+     * ほかのお薬が残っていれば、アプリの中のアラームが続けて知らせる
+     */
+    private void onNoVideo(String scheduleId) {
         // 開く画面は、ロックを解除したあとで作る（記録を頼んだ時刻を入れるため。AlarmRinger.EXTRA_RECORD_AT）
-        afterUnlock(() -> openApp(id != null ? AlarmRinger.recordIntent(this, id) : AlarmRinger.chooseIntent(this)));
+        afterUnlock(() -> openApp(AlarmRinger.recordIntent(this, scheduleId)));
     }
 
     /** ロック中なら、先に解除してもらってから続ける。解除をやめた場合は、このアラーム画面のまま鳴らし続ける */
@@ -412,30 +438,32 @@ public class AlarmActivity extends AppCompatActivity {
         medsView.setPadding(dp(20), dp(GAP), dp(20), dp(GAP));
         root.addView(medsView, below(GAP));
 
+        // お薬が 2 つ以上のとき：1 つずつ記録することの案内と、お薬ごとの枠（中身は onResume の renderItems で作る）
+        multiNoteView = text(19, COLOR_INK_SOFT, Typeface.DEFAULT);
+        multiNoteView.setText("お薬は1つずつ記録します。飲んだお薬のボタンを押してください。");
+        multiNoteView.setVisibility(View.GONE);
+        root.addView(multiNoteView, below(GAP));
+        itemsView = new LinearLayout(this);
+        itemsView.setOrientation(LinearLayout.VERTICAL);
+        itemsView.setVisibility(View.GONE);
+        root.addView(itemsView, below(0));
+
         // 「カメラを起動する」は、残りの高さをすべて使う大きなボタンにする（印の下に文字）
         LinearLayout.LayoutParams cameraParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
         cameraParams.topMargin = dp(GAP * 2);
-        root.addView(cameraButton(), cameraParams);
+        cameraView = cameraButton();
+        root.addView(cameraView, cameraParams);
 
         // 「飲みました（映像なしで記録する）」は、Web 版と同じく、藍色の枠だけのボタンにする（.btn-outline）
-        Button noVideo = new Button(this);
-        noVideo.setText("飲みました（映像なしで記録する）");
-        noVideo.setAllCaps(false);
-        noVideo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
-        noVideo.setTypeface(Typeface.DEFAULT_BOLD);
-        noVideo.setTextColor(COLOR_INDIGO);
-        noVideo.setBackground(outlined(COLOR_INDIGO));
-        noVideo.setStateListAnimator(null); // ボタンの影を出さない
-        noVideo.setMinHeight(dp(64));
-        noVideo.setPadding(dp(12), dp(12), dp(12), dp(12));
-        noVideo.setOnClickListener(v -> onNoVideo());
-        root.addView(noVideo, below(GAP));
+        noVideoButton = noVideoButton();
+        noVideoButton.setOnClickListener(v -> onNoVideo());
+        root.addView(noVideoButton, below(GAP));
 
-        // スキップのボタンは、この画面には置かない（1 回押しただけで、家族に「飲み忘れの可能性」と知らせが行くため）。
-        // どこで選べるかだけを、短く添える
-        TextView note = text(19, COLOR_INK_SOFT, Typeface.DEFAULT);
-        note.setText("飲まないときは、「カメラを起動する」の先で選べます。");
-        root.addView(note, below(GAP));
+        // スキップのボタンは、この画面には置かない（1 回押しただけで、すぐ家族に知らせが行くため）。
+        // どこで選べるかだけを、短く添える（文は onResume で、お薬の数に合わせる）
+        skipNoteView = text(19, COLOR_INK_SOFT, Typeface.DEFAULT);
+        skipNoteView.setText("飲まないときは、「カメラを起動する」の先で選べます。");
+        root.addView(skipNoteView, below(GAP));
 
         // 「あとで」は、Web 版と同じく、灰色の枠で囲んだ控えめなボタンにする（.alarm-dialog .btn-ghost）。
         // 枠が無いと、押せる場所だと分かりにくいため。「映像なし」（藍色の枠）より目立たない色にする
@@ -496,17 +524,66 @@ public class AlarmActivity extends AppCompatActivity {
         );
         labelParams.topMargin = dp(8);
         camera.addView(label, labelParams);
-
-        // お薬が 2 つ以上のときだけ出す「2つのお薬をまとめて記録します」（onResume で文と表示を決める）
-        cameraSubView = text(19, Color.WHITE, Typeface.DEFAULT_BOLD);
-        cameraSubView.setVisibility(View.GONE);
-        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        subParams.topMargin = dp(4);
-        camera.addView(cameraSubView, subParams);
         return camera;
+    }
+
+    /** 「飲みました（映像なしで記録する）」ボタン。Web 版と同じく、藍色の枠だけのボタンにする（.btn-outline） */
+    private Button noVideoButton() {
+        Button noVideo = new Button(this);
+        noVideo.setText("飲みました（映像なしで記録する）");
+        noVideo.setAllCaps(false);
+        noVideo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        noVideo.setTypeface(Typeface.DEFAULT_BOLD);
+        noVideo.setTextColor(COLOR_INDIGO);
+        noVideo.setBackground(outlined(COLOR_INDIGO));
+        noVideo.setStateListAnimator(null); // ボタンの影を出さない
+        noVideo.setMinHeight(dp(64));
+        noVideo.setPadding(dp(12), dp(12), dp(12), dp(12));
+        return noVideo;
+    }
+
+    /**
+     * お薬が 2 つ以上のときの、お薬ごとの枠（Web 版の .alarm-item）。白い地にテラコッタの枠で囲み、
+     * お薬の名前（前の時刻から残っているお薬には、その時刻）の下に「カメラで記録する」「飲みました（映像なしで記録する）」を並べる
+     */
+    private void renderItems(AlarmStore store, List<AlarmStore.Item> items) {
+        itemsView.removeAllViews();
+        long latest = AlarmRinger.latestOrigin(items);
+        for (AlarmStore.Item item : items) {
+            AlarmStore.Schedule s = store.findSchedule(item.id);
+            if (s == null) continue;
+            final String id = item.id;
+
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            GradientDrawable frame = rounded(Color.WHITE, dp(20));
+            frame.setStroke(dp(2), COLOR_TERRACOTTA);
+            box.setBackground(frame);
+            box.setPadding(dp(GAP), dp(GAP), dp(GAP), dp(GAP));
+
+            TextView name = text(24, COLOR_INK, Typeface.DEFAULT_BOLD);
+            name.setText(medLine(s, AlarmRinger.isEarlier(item, latest)));
+            box.addView(name, below(0));
+
+            Button camera = new Button(this);
+            camera.setText("カメラで記録する");
+            camera.setAllCaps(false);
+            camera.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+            camera.setTypeface(Typeface.DEFAULT_BOLD);
+            camera.setTextColor(Color.WHITE);
+            camera.setBackground(pressable(COLOR_TERRACOTTA, COLOR_TERRACOTTA_DEEP, dp(12)));
+            camera.setStateListAnimator(null);
+            camera.setMinHeight(dp(64));
+            camera.setPadding(dp(12), dp(12), dp(12), dp(12));
+            camera.setOnClickListener(v -> onCamera(id));
+            box.addView(camera, below(GAP));
+
+            Button noVideo = noVideoButton();
+            noVideo.setOnClickListener(v -> onNoVideo(id));
+            box.addView(noVideo, below(GAP));
+
+            itemsView.addView(box, below(GAP));
+        }
     }
 
     /** 「08:00 に飲む」… 時刻は大きく、「に飲む」は半分の大きさにする */
@@ -527,20 +604,26 @@ public class AlarmActivity extends AppCompatActivity {
             AlarmStore.Schedule s = store.findSchedule(item.id);
             if (s == null) continue;
             if (sb.length() > 0) sb.append("\n");
-            if (AlarmRinger.isEarlier(item, latest)) {
-                int from = sb.length();
-                sb.append(s.timeText()).append(" ");
-                sb.setSpan(new ForegroundColorSpan(COLOR_INDIGO_DEEP), from, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-            sb.append(s.name);
-            if (!s.amount.isEmpty()) {
-                int from = sb.length();
-                sb.append(" ").append(s.amount);
-                sb.setSpan(new RelativeSizeSpan(19f / 24f), from, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                sb.setSpan(new ForegroundColorSpan(COLOR_INK_SOFT), from, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
+            sb.append(medLine(s, AlarmRinger.isEarlier(item, latest)));
         }
         return sb.length() > 0 ? sb : "お薬";
+    }
+
+    /** お薬 1 つ分の行（例: 「ロキソニン 1錠」、前の時刻から残っているお薬は「07:30 アムロジン 1錠」） */
+    private CharSequence medLine(AlarmStore.Schedule s, boolean withTime) {
+        SpannableStringBuilder sb = new SpannableStringBuilder();
+        if (withTime) {
+            sb.append(s.timeText()).append(" ");
+            sb.setSpan(new ForegroundColorSpan(COLOR_INDIGO_DEEP), 0, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        sb.append(s.name);
+        if (!s.amount.isEmpty()) {
+            int from = sb.length();
+            sb.append(" ").append(s.amount);
+            sb.setSpan(new RelativeSizeSpan(19f / 24f), from, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            sb.setSpan(new ForegroundColorSpan(COLOR_INK_SOFT), from, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return sb;
     }
 
     // ---- 小物 ----

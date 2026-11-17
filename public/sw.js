@@ -44,14 +44,16 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   // 通知に開く画面の指定（url）があればそこを開く（例：見守りの終了 → 見守り画面）。
-  // 家族宛ての服薬の通知は、その人の服薬状況を表示した状態でホームを開く
+  // 家族宛ての服薬の通知は、その人の服薬状況を表示した状態でホームを開き、
+  // お知らせのお薬（記録）のカードまで動かして示す（home.js の showNotifiedCard）
   const data = event.notification.data || {};
   if (data.url) {
     event.waitUntil(self.clients.openWindow(data.url));
     return;
   }
   const patientId = data.patientId;
-  const targetUrl = patientId ? `home.html?view=${encodeURIComponent(patientId)}` : 'home.html';
+  const focus = data.logId ? `&focus=${encodeURIComponent(data.logId)}` : '';
+  const targetUrl = patientId ? `home.html?view=${encodeURIComponent(patientId)}${focus}` : 'home.html';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window' }).then((clientsArr) => {
