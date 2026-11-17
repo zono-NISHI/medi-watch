@@ -18,12 +18,20 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONObject;
 
 /**
  * Web の画面（public/js/alarm.js の NativeAlarm）から呼ぶ、ネイティブのアラームの窓口。
  *
  * JavaScript からは window.Capacitor.nativePromise('MediAlarm', メソッド名, 引数) で呼び出す。
  * - sync(...)                       … 予定と「今日もう記録した予定」を渡し、アラームを予約し直す
+ * - snooze({ items, hold })         … 画面から、5 分後にもう一度鳴らす予約を入れる（items は { id, origin: 本来の服薬時刻 }）。
+ *                                     hold = false は「あとで」、true は記録待ち（撮影画面を開いたとき）
+ * - getStatus() などの戻り値の snoozed … 端末のアラームで「あとで」にした予定（id → もう一度鳴らす時刻）
+ * - announce({ text })              … 画面のアラームの文を 1 回読み上げる（端末のアラームが鳴っているあいだは読み上げない）
+ * - stopAnnounce()                  … その読み上げを止める
  * - clear()                         … ログアウト時に、予約と保存した予定をすべて消す
  * - getStatus()                     … アラームに必要な許可がそろっているか
  * - requestNotificationPermission() … 通知の許可を求める（Android 13 以降）
@@ -52,8 +60,35 @@ public class MediAlarmPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void snooze(PluginCall call) {
+        JSArray arr = call.getArray("items", new JSArray());
+        List<AlarmStore.Item> items = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            String id = o.optString("id", "");
+            if (!id.isEmpty()) items.add(new AlarmStore.Item(id, o.optLong("origin")));
+        }
+        AlarmRinger.snoozeFromApp(getContext(), items, Boolean.TRUE.equals(call.getBoolean("hold", false)));
+        call.resolve(status());
+    }
+
+    @PluginMethod
+    public void announce(PluginCall call) {
+        AlarmAnnouncer.speak(getContext(), call.getString("text", ""));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void stopAnnounce(PluginCall call) {
+        AlarmAnnouncer.stop();
+        call.resolve();
+    }
+
+    @PluginMethod
     public void clear(PluginCall call) {
         Context context = getContext();
+        AlarmAnnouncer.stop();
         AlarmRinger.dismiss(context);
         new AlarmStore(context).clearAll();
         AlarmScheduler.reschedule(context); // 予定が空なので、予約が取り消される
@@ -131,7 +166,10 @@ public class MediAlarmPlugin extends Plugin {
         }
         s.put("exactAlarm", exact);
 
-        s.put("nextAlarmAt", new AlarmStore(context).nextAt()); // 予約が無ければ 0
+        AlarmStore store = new AlarmStore(context);
+        s.put("nextAlarmAt", store.nextAt()); // 予約が無ければ 0
+        // 端末のアラームで「あとで」にした予定（id → もう一度鳴らす時刻）。そのあいだは画面のアラームも出さない
+        s.put("snoozed", store.userSnoozes());
         return s;
     }
 }

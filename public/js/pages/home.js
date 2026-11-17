@@ -20,11 +20,15 @@ const SELF_TARGET = { id: profile.id, isSelf: true, canViewVideo: true };
 // 服薬アラーム（js/alarm.js）の「カメラを起動する」から来たとき（?take=スケジュールID）
 const takeFromUrl = new URLSearchParams(location.search).get('take');
 if (takeFromUrl) history.replaceState(null, '', location.pathname);
+// アラームから来て、撮影画面を開くまでのあいだ true。このあいだは画面のアラームを出さない
+// （撮影画面より先に、アラームの画面が一瞬出てしまうため）
+let takePending = !!takeFromUrl;
 
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let currentLogId = null;
+let currentScheduleId = null;
 let currentMedName = '';
 let lastMerged = []; // 最後に表示した自分の予定（アラームから撮影を始めるときに使う）
 
@@ -88,12 +92,19 @@ ViewTarget.init()
   .catch((err) => console.error(err))
   .finally(async () => {
     await runPoll();
-    if (takeFromUrl) startTakeFromAlarm(takeFromUrl);
+    if (!takeFromUrl) return;
+    try {
+      await startTakeFromAlarm(takeFromUrl);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      takePending = false; // 撮影画面を開けなかったときは、画面のアラームで知らせる
+    }
   });
 
 // 服薬アラーム：ホームでは画面を移らずに、この画面の撮影モーダルを開く
 MedAlarm.start({
-  isBusy: () => modal.open,
+  isBusy: () => modal.open || takePending,
   onStartCamera: ({ schedule, log }) => {
     if (!ViewTarget.get()?.isSelf) {
       ViewTarget.select(profile.id);
@@ -138,10 +149,12 @@ async function loadTodaySchedules() {
   const container = document.getElementById('schedule-list');
   const target = ViewTarget.get() || SELF_TARGET;
   try {
-    const [{ schedules }, { logs }] = await Promise.all([
+    const [{ schedules }, { logs: fetchedLogs }] = await Promise.all([
       Api.listSchedules(target.isSelf ? undefined : target.id),
       Api.listLogs({ patient_id: target.id, date: todayStr() }),
     ]);
+    // 自分の予定で、時刻を過ぎたのに記録がまだ無いものは、ここで「未記録」の記録を作る
+    const logs = target.isSelf ? await ensureOverdueLogs(schedules, fetchedLogs) : fetchedLogs;
 
     // 読み込み中に別の人へ切り替えられていたら、古い結果は捨てる
     if ((ViewTarget.get() || SELF_TARGET).id !== target.id) return;
@@ -154,6 +167,34 @@ async function loadTodaySchedules() {
     console.error(err);
     throw err; // ポーリング側でリトライ間隔を後退させるために再送出する
   }
+}
+
+// 服薬時刻を過ぎたのに、今日の記録（medication_logs）がまだ無い自分の予定について、「未記録」の記録を作る。
+// 今日の記録はふだんサーバーの cron が作るが、サーバーが止まっていた（しばらく誰も使わず休止していた）
+// あいだに時刻を過ぎると、記録が無いままになる。するとホームには「時間が過ぎています」と出るのに、
+// 記録タブには何も出ない、という食い違いが起きる。ホームを開いた時点で作り、記録タブにも「飲み忘れ」と出るようにする。
+// （サーバーは同じ予定の記録を二重に作らない。作れなくても表示は続け、cron が後で作る）
+async function ensureOverdueLogs(schedules, logs) {
+  const dow = new Date().getDay();
+  const missing = (schedules || []).filter(
+    (s) =>
+      (s.days_of_week || [0, 1, 2, 3, 4, 5, 6]).includes(dow) &&
+      isPastDue(s.scheduled_time) &&
+      !isChangedAfterDue(s) && // 時刻を過ぎてから登録・変更した予定は、明日から記録する
+      !findTodayLog(s, logs)
+  );
+  if (missing.length === 0) return logs || [];
+  const created = await Promise.all(
+    missing.map((s) =>
+      Api.createLog({ schedule_id: s.id, date: todayStr() })
+        .then(({ log }) => log)
+        .catch((err) => {
+          console.warn('未記録の記録を作れませんでした:', err);
+          return null;
+        })
+    )
+  );
+  return [...(logs || []), ...created.filter(Boolean)];
 }
 
 function todayStr() {
@@ -209,7 +250,8 @@ function renderSchedules(merged, target, hasSchedules) {
           : status === 'skipped'
           ? '<span class="badge badge-skipped">スキップ</span>'
           : isOverdue
-          ? '<span class="badge badge-skipped">時間が過ぎています</span>'
+          // 「スキップ」と同じ色だと、何もしていないのにスキップしたように見えるため、記録タブの「飲み忘れ」と同じ濃い色にする
+          ? '<span class="badge badge-missed">時間が過ぎています</span>'
           : '<span class="badge badge-pending">これから</span>';
 
       const actionHtml =
@@ -275,11 +317,11 @@ function escapeHtml(str) {
 }
 
 // ---- 音声案内（撮影画面を開いたときに読み上げる。服薬時刻になったときのアラームは js/alarm.js） ----
-function speakReminder(medName) {
+// med: { name, dosage, unit }。アラームと同じ言い方で、用量も読み上げる（例: 「お薬の時間です。ロキソニンを3錠服用してください。」）
+function speakReminder(med) {
+  const medName = med?.name || 'お薬';
   try {
-    const utter = new SpeechSynthesisUtterance(
-      `お薬の時間です。${medName}を服用してください。`
-    );
+    const utter = new SpeechSynthesisUtterance(medAnnouncement([med]));
     utter.lang = 'ja-JP';
     utter.rate = 0.95;
     speechSynthesis.speak(utter);
@@ -307,17 +349,27 @@ const VIDEO_BITS_PER_SECOND = 1000000; // 約1Mbps（30秒で約4MB）
 let recordTimer = null;
 let finishing = false; // 自動の記録とボタンの記録が重ならないようにする
 
+const takeSubEl = document.getElementById('take-modal-sub');
+// 「映像なしで記録」のボタンは、録画中は「映像つき」のボタンと対になる言い方にする
+const LABEL_NO_VIDEO = '映像なしで「飲んだ」を記録';
+const LABEL_NO_VIDEO_RECORDING = '飲みました（映像なしで記録する）';
+
 async function openTakeModal({ logId, scheduleId, medName }) {
   currentLogId = logId || (await ensureLogExists(scheduleId));
+  currentScheduleId = scheduleId || null;
   currentMedName = medName || 'お薬';
 
   document.getElementById('take-modal-title').textContent = `「${currentMedName}」を服用しましょう`;
-  document.getElementById('take-modal-sub').textContent = `服用後、ボタンを押して記録してください。カメラの利用は任意です。録画は${MAX_RECORD_SECONDS}秒たつと自動で終わり、そのまま記録されます。`;
   uploadStatus.textContent = '';
   resetCameraUi();
 
   modal.showModal();
-  speakReminder(currentMedName);
+  // ネイティブ版：お薬の時間になっている予定を、端末のアラームの「記録待ち」にする
+  // （鳴っていれば音が止まる。記録しないままアプリを離れても、5分後に端末のアラームが鳴る）
+  MedAlarm.holdDue();
+  // 用量・単位は、表示中の予定から探す（見つからなければ名前だけを読み上げる）
+  const med = lastMerged.find(({ schedule }) => schedule.id === scheduleId)?.schedule.medications;
+  speakReminder({ ...med, name: currentMedName });
 }
 
 async function ensureLogExists(scheduleId) {
@@ -336,15 +388,28 @@ function resetCameraUi() {
   startCameraBtn.hidden = false;
   finishTakeBtn.hidden = true;
   takeWithoutVideoBtn.hidden = false;
+  takeWithoutVideoBtn.textContent = LABEL_NO_VIDEO;
+  takeSubEl.textContent = `服用後、ボタンを押して記録してください。カメラの利用は任意です。録画は${MAX_RECORD_SECONDS}秒たつと自動で終わり、そのまま記録されます。`;
+  modal.classList.remove('is-recording');
   recordedChunks = [];
 }
 
 document.getElementById('modal-close-btn').addEventListener('click', () => closeModal());
-modal.addEventListener('cancel', () => closeModal());
+modal.addEventListener('cancel', (e) => {
+  e.preventDefault(); // 閉じるかどうかは closeModal で決める
+  closeModal();
+});
 
+// 「×」などで、記録せずに閉じたとき
 function closeModal() {
+  if (finishing) return; // 記録の送信中は閉じない（記録されたのに「あとで」になるのを防ぐ）
   stopCamera();
   modal.close();
+  // お薬の時間になっている予定なら、アラームの「あとで」と同じ扱いにする
+  // （閉じた直後にアラームの画面へ戻すと迷う。何もしないと、ネイティブ版では今日はもう鳴らない）
+  if (currentScheduleId && MedAlarm.snoozeIfDue(currentScheduleId)) {
+    showToast(`記録せずに閉じました。${MedAlarm.SNOOZE_MIN}分後にもう一度お知らせします。`, 'info', 6000);
+  }
 }
 
 startCameraBtn.addEventListener('click', async () => {
@@ -360,8 +425,12 @@ startCameraBtn.addEventListener('click', async () => {
     recordIndicator.hidden = false;
     startCameraBtn.hidden = true;
     finishTakeBtn.hidden = false;
-    // 録画中は「映像つきで記録」だけを出し、ボタンの役割が重ならないようにする
-    takeWithoutVideoBtn.hidden = true;
+    // 録画中も「映像なしで記録」を選べるようにする（アラームから来るとカメラがすぐ起動するため、
+    // 隠すと「×」で閉じない限り映像なしを選べない）。ボタンが1つ増える分、映像の枠を低くし、
+    // 説明文を短くして、ボタンが画面に収まるようにする（css/home.css の .is-recording）
+    takeWithoutVideoBtn.textContent = LABEL_NO_VIDEO_RECORDING;
+    takeSubEl.textContent = `服用後、下のボタンを押して記録してください。${MAX_RECORD_SECONDS}秒たつと、自動で映像つきで記録されます。`;
+    modal.classList.add('is-recording');
 
     recordedChunks = [];
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
@@ -464,18 +533,26 @@ async function uploadVideo(blob) {
 }
 
 takeWithoutVideoBtn.addEventListener('click', async () => {
+  if (finishing) return; // 映像つきの記録（ボタン・30秒の自動）と重ならないようにする
+  finishing = true;
   takeWithoutVideoBtn.disabled = true;
+  finishTakeBtn.disabled = true;
+  const wasRecording = !!mediaStream;
   try {
-    stopCamera();
+    stopCamera(); // 録画中だった場合、撮った映像は保存せずに捨てる
     await Api.takeLog(currentLogId, {});
-    showToast('服薬を記録しました。', 'success');
+    showToast(wasRecording ? '映像なしで服薬を記録しました。' : '服薬を記録しました。', 'success');
     modal.close();
     loadTodaySchedules();
     MedAlarm.refresh(); // 記録した予定のアラームを止める
   } catch (err) {
     handleApiError(err, '記録に失敗しました。');
+    // カメラは止めたので、録画中だった場合はカメラ起動前の表示に戻す
+    if (wasRecording) resetCameraUi();
   } finally {
+    finishing = false;
     takeWithoutVideoBtn.disabled = false;
+    finishTakeBtn.disabled = false;
   }
 });
 

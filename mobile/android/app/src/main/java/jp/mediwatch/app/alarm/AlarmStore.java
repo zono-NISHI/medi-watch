@@ -28,8 +28,13 @@ final class AlarmStore {
     static final long ALARM_WINDOW_MS = 60L * 60 * 1000;
     /** 「あとで」を押したときに、もう一度鳴らすまでの時間 */
     static final long SNOOZE_MS = 5L * 60 * 1000;
-    /** 予約した時刻から、鳴らすのが遅れても鳴らす範囲（端末の電源が切れていた場合など） */
+    /**
+     * 予約した時刻から、鳴らすのが遅れても鳴らす範囲（端末の処理が遅れた場合など）。
+     * 電源が切れていて鳴らせなかった分は、電源を入れたあとに AlarmScheduler.catchUpAfterBoot が鳴らす
+     */
     static final long LATE_TOLERANCE_MS = 10L * 60 * 1000;
+    /** 電源を入れてから、鳴らせなかったアラームを鳴らすまでの時間（起動直後の処理が落ち着くのを待つ） */
+    static final long BOOT_CATCH_UP_DELAY_MS = 5L * 1000;
 
     private static final String PREFS = "medi_watch_alarm";
     private static final String KEY_SCHEDULES = "schedules";
@@ -47,12 +52,16 @@ final class AlarmStore {
         final int minute;
         final boolean[] days = new boolean[7]; // 0 = 日曜（JavaScript の getDay() と同じ）
         final String label; // 例: 「ロキソニン 1錠」
+        final String speech; // 読み上げ用。例: 「ロキソニンを1錠」（用量が無ければ「ロキソニンを」）
+        final long updatedAt; // 予定を最後に登録・変更した時刻（ミリ秒）。分からなければ 0
 
-        Schedule(String id, int hour, int minute, String label) {
+        Schedule(String id, int hour, int minute, String label, String speech, long updatedAt) {
             this.id = id;
             this.hour = hour;
             this.minute = minute;
             this.label = label;
+            this.speech = speech;
+            this.updatedAt = updatedAt;
         }
 
         String timeText() {
@@ -104,7 +113,11 @@ final class AlarmStore {
             String[] hm = o.optString("time", "").split(":");
             if (id.isEmpty() || hm.length < 2) continue;
             try {
-                Schedule s = new Schedule(id, Integer.parseInt(hm[0]), Integer.parseInt(hm[1]), o.optString("label", "お薬"));
+                String label = o.optString("label", "お薬");
+                // 読み上げ用の文が無い（以前の版の画面が保存した予定）ときは、表示用の名前から作る
+                String speech = o.optString("speech", "");
+                if (speech.isEmpty()) speech = label + "を";
+                Schedule s = new Schedule(id, Integer.parseInt(hm[0]), Integer.parseInt(hm[1]), label, speech, o.optLong("updatedAt", 0));
                 JSONArray days = o.optJSONArray("days");
                 if (days == null || days.length() == 0) {
                     for (int d = 0; d < 7; d++) s.days[d] = true;
@@ -146,9 +159,37 @@ final class AlarmStore {
 
     // ---- 「あとで」にした予定 ----
 
-    /** id → { at: もう一度鳴らす時刻, origin: 本来の服薬時刻 } */
+    /**
+     * 鳴らし直す予約の「記録待ち」の印（true のとき、利用者が「あとで」を選んだのではなく、
+     * 「カメラを起動する」を押したあと、記録しないままになったときに備えた予約）
+     */
+    static final String SNOOZE_HOLD = "hold";
+
+    /** id → { at: もう一度鳴らす時刻, origin: 本来の服薬時刻, hold: 記録待ちか } */
     JSONObject snoozes() {
         return readObject(KEY_SNOOZES);
+    }
+
+    /**
+     * 利用者が「あとで」を選んだ予定（id → もう一度鳴らす時刻）。記録待ちの予約は含めない。
+     * 画面のアラームが、端末で「あとで」にしたあいだは出さないようにするために渡す
+     */
+    JSONObject userSnoozes() {
+        JSONObject result = new JSONObject();
+        JSONObject snoozes = snoozes();
+        long now = System.currentTimeMillis();
+        Iterator<String> keys = snoozes.keys();
+        while (keys.hasNext()) {
+            String id = keys.next();
+            JSONObject sn = snoozes.optJSONObject(id);
+            if (sn == null || sn.optBoolean(SNOOZE_HOLD, false) || sn.optLong("at") <= now) continue;
+            try {
+                result.put(id, sn.optLong("at"));
+            } catch (JSONException ignored) {
+                // put に失敗することはない
+            }
+        }
+        return result;
     }
 
     void saveSnoozes(JSONObject snoozes) {
