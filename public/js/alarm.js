@@ -174,6 +174,13 @@ const NativeAlarm = (() => {
     await plugin.openSettings({ target: key });
   }
 
+  // 「済み」の設定を変える（オフにする）とき。アプリからは許可を取り消せないため、端末の設定画面を開く
+  async function openSettings(key) {
+    if (!plugin) return;
+    await plugin.openSettings({ target: key }).catch((err) =>
+      console.warn('[alarm] 設定の画面を開けませんでした:', err));
+  }
+
   // ログアウトしたら、この端末で鳴らさないようにする
   async function clear() {
     if (!plugin) return;
@@ -212,7 +219,11 @@ const NativeAlarm = (() => {
             <p class="text-sm text-muted">${escapeHtml(c.why)}</p>
           </div>
           ${ok
-            ? '<span class="native-alarm-ok">済み ✓</span>'
+            // 済みの設定も、端末の設定画面を開いてオフにできるようにする（戻ってきたら mypage.js が状態を確認し直す）
+            ? `<div class="native-alarm-ok-row">
+                 <span class="native-alarm-ok">済み ✓</span>
+                 <button type="button" class="btn btn-outline btn--sm btn--auto" data-change="${c.key}">設定を変える</button>
+               </div>`
             : `<button type="button" class="btn btn-accent" data-fix="${c.key}">設定する</button>`}
         </li>`;
     }).join('');
@@ -221,6 +232,9 @@ const NativeAlarm = (() => {
         await fix(btn.dataset.fix);
         renderChecks(listEl, nextEl);
       })
+    );
+    listEl.querySelectorAll('[data-change]').forEach((btn) =>
+      btn.addEventListener('click', () => openSettings(btn.dataset.change))
     );
     if (nextEl) {
       const next = Number(st.nextAlarmAt) || 0;
@@ -244,7 +258,7 @@ const NativeAlarm = (() => {
 
   return {
     available, sync, snooze, isSnoozed, announce, stopAnnounce, ringsNatively,
-    status, missing, fix, clear, renderSetupNotice, renderChecks,
+    status, missing, fix, openSettings, clear, renderSetupNotice, renderChecks,
   };
 })();
 
