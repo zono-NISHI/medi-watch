@@ -130,6 +130,7 @@ const NativeAlarm = (() => {
 
   // 端末の読み上げ機能で、文を1回読み上げる（アプリの画面は、自分では読み上げられないため）
   // 端末のアラームが鳴っているあいだは、端末側が読み上げない（アラームの音・読み上げと重ならないように）
+  // 声は「アラーム」の音量で鳴る。読み上げを頼むと、stopAnnounce を呼ぶまで、音量ボタンで「アラーム」の音量を変えられる
   function announce(text) {
     if (!plugin) return;
     plugin.announce({ text }).catch((err) => console.warn('[alarm] 読み上げを頼めませんでした:', err));
@@ -283,6 +284,9 @@ const MedAlarm = (() => {
       document.addEventListener(type, unlockAudio, { capture: true, passive: true })
     );
     document.addEventListener('visibilitychange', onVisibilityChange);
+    // ネイティブ版：前の画面が読み上げの途中で切り替わったときに備えて、読み上げを止め、
+    // 音量ボタンで変わる音量をいつもの音量に戻しておく（読み上げているあいだだけ「アラーム」の音量になる。Web 版では何もしない）
+    NativeAlarm.stopAnnounce();
     tick();
     checkTimer = setInterval(tick, CHECK_INTERVAL_MS);
   }
