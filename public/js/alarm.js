@@ -277,7 +277,12 @@ const MedAlarm = (() => {
   const FETCH_INTERVAL_MS = 60 * 1000; // 予定と記録を取り直す間隔
   const CHECK_INTERVAL_MS = 10 * 1000; // 鳴らすかどうかを判定する間隔
   const SOUND_INTERVAL_MS = 2500;
-  const SPEAK_INTERVAL_MS = 20 * 1000;
+  const SPEAK_INTERVAL_MS = 20 * 1000; // ネイティブ版で、端末の読み上げだけで知らせるときの間隔
+  // ブラウザ版の読み上げの間合いと速さは、ネイティブ版の端末のアラーム（AlarmSound.java）にそろえる
+  // （鳴り始めて約3秒後に1回目 → 読み終わってから約8秒チャイム → また読み上げ、を繰り返す）
+  const FIRST_SPEECH_DELAY_MS = 3000;
+  const SPEECH_GAP_MS = 8000;
+  const SPEECH_RATE = 0.9;
   const SNOOZE_KEY = 'medi_watch_alarm_snooze';
 
   let options = {};
@@ -293,7 +298,10 @@ const MedAlarm = (() => {
   let audioCtx = null;
   let soundTimer = null;
   let voiceOnly = false; // ネイティブ版で、端末の読み上げだけで知らせているか（startSound で決める）
-  let lastSpokenAt = 0;
+  let speechTimer = null; // 次の読み上げを待つタイマー（ブラウザ版）
+  let speaking = false; // ブラウザ版で読み上げている最中か（speechSynthesis.speaking は端末によって当てにならないので、自分で持つ）
+  let finishSpeech = null; // いまの読み上げを終わったことにする関数（止めるとき・終わりの知らせが来たときに呼ぶ）
+  let currentUtterance = null; // Chrome は、どこからも参照されていない読み上げの終わりの知らせを落とすことがあるので、読み終わるまで持っておく
   let wakeLock = null;
 
   // options:
@@ -402,7 +410,7 @@ const MedAlarm = (() => {
         <p class="text-sm alarm-note" id="alarm-multi-note" hidden>お薬は1つずつ記録します。飲んだお薬のボタンを押してください。</p>
         <ul class="alarm-items" id="alarm-items" hidden></ul>
         <p class="text-sm alarm-note" id="alarm-skip-note" hidden>スキップするときは、「カメラで記録する」を押すと出る画面から選べます。</p>
-        <button type="button" class="btn btn-ghost" data-alarm="snooze">あとで（${SNOOZE_MIN}分後にもう一度お知らせ）</button>
+        <button type="button" class="btn btn-ghost alarm-snooze-btn" data-alarm="snooze">あとで<span>（${SNOOZE_MIN}分後にもう一度お知らせ）</span></button>
         <p class="text-sm alarm-note" id="alarm-sound-hint" hidden>音が鳴らないときは、画面のどこかに一度触れてください。</p>
       </div>`;
     // Esc キーなどで閉じられないようにする（ボタンで操作してもらうため）
@@ -601,32 +609,38 @@ const MedAlarm = (() => {
   // - ネイティブ版 … 音と振動は端末のアラームが鳴らすので、この画面はチャイムを鳴らさない。
   //   端末のアラームが鳴っていないあいだ（1つ目を記録したあとの、残りのお薬の案内など）だけ、
   //   端末の読み上げ機能で「お薬の時間です。○○を3錠服用してください。」と、表示中のお薬を読み上げる
-  function startSound() {
+  // firstSpeechDelay: 1回目の読み上げまでの時間（ブラウザ版。お薬が変わって読み上げ直すときは 0）
+  function startSound(firstSpeechDelay = FIRST_SPEECH_DELAY_MS) {
     if (soundTimer) return;
-    lastSpokenAt = 0;
     voiceOnly = NativeAlarm.ringsNatively();
     if (voiceOnly) {
       announceNatively();
       soundTimer = setInterval(announceNatively, SPEAK_INTERVAL_MS);
       return;
     }
-    playOnce();
+    // すぐ読み上げるときは、チャイムを鳴らさない（チャイムの残りが声の出だしに重ならないように）
+    if (firstSpeechDelay > 0) playOnce();
     soundTimer = setInterval(playOnce, SOUND_INTERVAL_MS);
+    scheduleSpeech(firstSpeechDelay);
   }
 
   function stopSound() {
     const wasOn = !!soundTimer;
     clearInterval(soundTimer);
     soundTimer = null;
+    clearTimeout(speechTimer);
+    speechTimer = null;
     if (wasOn && voiceOnly) NativeAlarm.stopAnnounce();
+    finishSpeech?.(false);
     try { speechSynthesis?.cancel(); } catch { /* noop */ }
+    try { navigator.vibrate?.(0); } catch { /* noop */ }
   }
 
-  // 鳴らしている最中なら、いったん止めて最初からやり直す（読み上げる内容を、いまのお薬に合わせる）
+  // 鳴らしている最中なら、いったん止めて最初からやり直す（読み上げる内容を、いまのお薬に合わせ、すぐ読み上げ直す）
   function restartSound() {
     if (!soundTimer) return;
     stopSound();
-    startSound();
+    startSound(0);
   }
 
   // いま表示しているお薬だけを読み上げる文（例: 「お薬の時間です。ロキソニンを3錠、ガスターを1包服用してください。」）
@@ -638,25 +652,41 @@ const MedAlarm = (() => {
     if (items.length > 0) NativeAlarm.announce(announcementText());
   }
 
+  // 音を鳴らせる状態か（ブラウザは、利用者が画面に触れるまで音を出させない。読み上げも同じ）
+  function canPlaySound() {
+    return !!audioCtx && audioCtx.state === 'running';
+  }
+
+  // 2.5秒ごとに呼ぶ。チャイムと振動
   function playOnce() {
-    const canPlay = audioCtx && audioCtx.state === 'running';
+    // 読み上げているあいだは、チャイムも振動も止めて声だけにする
+    // （振動の音やチャイムが声に重なると、雑音が入ったように聞こえるため。ネイティブ版も読み上げ中はアラームの音を消す）
+    if (speaking) return;
+
+    const canPlay = canPlaySound();
     const hint = dialog?.querySelector('#alarm-sound-hint');
-    if (hint) hint.hidden = !!canPlay;
+    if (hint) hint.hidden = canPlay;
     if (!canPlay) {
       unlockAudio(); // 以前に画面に触れていれば、これで鳴らせるようになる
       return;
     }
 
     try { navigator.vibrate?.([300, 150, 300]); } catch { /* noop */ }
-
-    // 読み上げ中はチャイムを止める（声が聞き取りにくくなるため）
-    if ('speechSynthesis' in window && speechSynthesis.speaking) return;
-    if ('speechSynthesis' in window && Date.now() - lastSpokenAt >= SPEAK_INTERVAL_MS) {
-      lastSpokenAt = Date.now();
-      speak();
-      return;
-    }
     chime();
+  }
+
+  // delay ミリ秒後に読み上げる。まだ音を出せない（画面に触れていない）ときは、出せるようになるまで1秒ごとに待つ
+  function scheduleSpeech(delay) {
+    clearTimeout(speechTimer);
+    speechTimer = setTimeout(() => {
+      speechTimer = null;
+      if (!soundTimer || voiceOnly || !('speechSynthesis' in window)) return;
+      if (!canPlaySound()) {
+        scheduleSpeech(1000);
+        return;
+      }
+      speak();
+    }, delay);
   }
 
   // ピピピッという短い音を3回
@@ -676,14 +706,38 @@ const MedAlarm = (() => {
     });
   }
 
+  // 1回読み上げる。読み終わったら（終わりの知らせが来なくても、長くとも決まった時間で）チャイムに戻り、
+  // SPEECH_GAP_MS 後にもう一度読み上げる
   function speak() {
+    const text = announcementText();
+    // 終わりの知らせ（onend）が来ない端末でも、チャイムが止まったままにならないよう、読み終わるころに戻す
+    // （日本語はおよそ1秒に6文字。少し余裕を持たせ、長くても40秒まで。ネイティブ版と同じ上限）
+    const watchdog = setTimeout(() => finish(true), Math.min(40000, 4000 + text.length * 300));
+    let done = false;
+    // again: true … 読み終わった（次の読み上げを予約する）／ false … 止めた
+    function finish(again) {
+      if (done) return;
+      done = true;
+      clearTimeout(watchdog);
+      if (finishSpeech === finish) finishSpeech = null;
+      currentUtterance = null;
+      speaking = false;
+      if (again && soundTimer && !voiceOnly) scheduleSpeech(SPEECH_GAP_MS);
+    }
+    finishSpeech = finish;
+    speaking = true;
+    try { navigator.vibrate?.(0); } catch { /* noop */ } // 鳴っている振動も止める
     try {
-      const utter = new SpeechSynthesisUtterance(announcementText());
+      const utter = new SpeechSynthesisUtterance(text);
       utter.lang = 'ja-JP';
-      utter.rate = 0.95;
+      utter.rate = SPEECH_RATE;
+      utter.onend = () => finish(true);
+      utter.onerror = () => finish(true);
+      currentUtterance = utter;
       speechSynthesis.speak(utter);
     } catch (err) {
       console.warn('[alarm] 読み上げに失敗しました:', err);
+      finish(true);
     }
   }
 
