@@ -12,6 +12,19 @@ const { findDuplicateTime, duplicateTimeError } = require('../lib/scheduleTimes'
 const router = express.Router();
 router.use(requireAuth);
 
+// 用量・単位は必須（どちらかが空だと、読み上げ・アラーム・家族が見る記録で「何をどれだけ飲むか」が伝わらないため）
+// 「適量」などの言葉も入れられるよう、中身の形は問わず、空かどうかだけを見る
+function isBlank(value) {
+  return String(value ?? '').trim() === '';
+}
+
+function amountError({ dosage, unit }, name) {
+  const who = name ? `「${name}」の` : '';
+  if (isBlank(dosage)) return { code: 'DOSAGE_REQUIRED', error: `${who}用量を入力してください。` };
+  if (isBlank(unit)) return { code: 'UNIT_REQUIRED', error: `${who}単位を選んでください。` };
+  return null;
+}
+
 // ----------------------------------------------------------
 // GET /api/medications
 // 自分（患者）の薬一覧、または閲覧権限のある患者の薬一覧
@@ -54,7 +67,7 @@ router.get(
 
 // ----------------------------------------------------------
 // POST /api/medications
-// 手動登録
+// 手動登録（名前・用量・単位は必須）
 // body: { name, dosage, unit, notes, start_date, end_date,
 //         schedules: [{ scheduled_time, days_of_week, meal_timing, reminder_minutes }] }
 // ----------------------------------------------------------
@@ -63,6 +76,8 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, dosage, unit, notes, start_date, end_date, schedules } = req.body;
     if (!name) return res.status(400).json({ error: '薬の名前は必須です。' });
+    const amountErr = amountError({ dosage, unit });
+    if (amountErr) return res.status(400).json(amountErr);
 
     // 同じ時刻が2つあれば、お薬を登録する前に止める（お薬だけが登録された状態を残さないため）
     if (Array.isArray(schedules)) {
@@ -146,6 +161,11 @@ router.post(
     if (!Array.isArray(medications) || medications.length === 0) {
       return res.status(400).json({ error: '登録する薬がありません。' });
     }
+    for (const m of medications) {
+      if (isBlank(m.name)) return res.status(400).json({ error: '薬の名前は必須です。' });
+      const amountErr = amountError(m, m.name);
+      if (amountErr) return res.status(400).json(amountErr);
+    }
 
     const rows = medications.map((m) => ({
       patient_id: req.user.id,
@@ -180,6 +200,17 @@ router.patch(
     if (Array.isArray(req.body.schedules)) {
       const dup = findDuplicateTime(req.body.schedules.map((s) => s.scheduled_time));
       if (dup) return res.status(409).json(duplicateTimeError(dup));
+    }
+
+    // 用量・単位を送ってきたときは、空にさせない（送らない更新＝削除・停止などは、そのまま通す。
+    // 用量・単位が必須になる前に登録したお薬も、編集で保存するときに入力してもらう）
+    const { dosage, unit } = req.body;
+    if (dosage !== undefined || unit !== undefined) {
+      const amountErr = amountError({
+        dosage: dosage === undefined ? '（変更なし）' : dosage,
+        unit: unit === undefined ? '（変更なし）' : unit,
+      });
+      if (amountErr) return res.status(400).json(amountErr);
     }
 
     const allowed = ['name', 'dosage', 'unit', 'notes', 'start_date', 'end_date', 'is_active'];

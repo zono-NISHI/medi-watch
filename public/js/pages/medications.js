@@ -78,7 +78,7 @@ function renderMedications(medications) {
           <div class="med-card-head">
             <div style="flex:1">
               <h3>${escapeHtml(m.name)}</h3>
-              <p class="text-sm text-muted" style="margin:0">${escapeHtml(m.dosage)} ${escapeHtml(m.unit)}</p>
+              ${amountLineHtml(m, editable)}
               ${m.notes ? `<p class="text-sm text-muted" style="margin-top:4px">${escapeHtml(m.notes)}</p>` : ''}
             </div>
             <div class="med-card-actions" ${editable ? '' : 'hidden'}>
@@ -101,6 +101,17 @@ function renderMedications(medications) {
   container.querySelectorAll('[data-action="delete"]').forEach((btn) =>
     btn.addEventListener('click', () => deleteMedication(btn.dataset.id))
   );
+}
+
+// 用量・単位の行。用量・単位を必須にする前に登録したお薬で、どちらかが空のものには入力を促す
+function amountLineHtml(m, editable) {
+  const dosage = (m.dosage || '').trim();
+  const unit = (m.unit || '').trim();
+  if (dosage && unit) {
+    return `<p class="text-sm text-muted" style="margin:0">${escapeHtml(dosage)} ${escapeHtml(unit)}</p>`;
+  }
+  const missing = !dosage && !unit ? '用量と単位' : !dosage ? '用量' : '単位';
+  return `<p class="text-sm med-amount-missing">${missing}が登録されていません。${editable ? '鉛筆のボタンから登録してください。' : ''}</p>`;
 }
 
 // 外した（停止した）スケジュールは表示しない。時刻順に並べる
@@ -150,6 +161,31 @@ function setupUnitPicker(picker, value) {
 function getUnitValue(picker) {
   const select = picker.querySelector('.unit-select');
   return select.value === UNIT_OTHER ? picker.querySelector('.unit-other').value.trim() : select.value;
+}
+
+// 用量・単位は必須。空の欄があれば、お知らせを出してその欄へ移り、false を返す
+// （読み上げ・アラーム・家族が見る記録で「何をどれだけ飲むか」が伝わるようにするため。サーバーでも確かめる）
+// medName: 複数のお薬を一度に登録するとき（QRコード）に、どのお薬の欄かを示す
+function checkAmountFilled(dosageInput, picker, medName) {
+  const who = medName ? `「${medName}」の` : '';
+  const select = picker.querySelector('.unit-select');
+  const other = picker.querySelector('.unit-other');
+  let message = null;
+  let target = null;
+  if (!dosageInput.value.trim()) {
+    message = `${who}用量を入力してください。（例：1、適量）`;
+    target = dosageInput;
+  } else if (!select.value) {
+    message = `${who}単位を選んでください。一覧に無いときは「その他（入力する）」を選んでください。`;
+    target = select;
+  } else if (select.value === UNIT_OTHER && !other.value.trim()) {
+    message = `${who}単位を入力してください。`;
+    target = other;
+  }
+  if (!message) return true;
+  showToast(message, 'error');
+  target.focus();
+  return false;
 }
 
 async function deleteMedication(id) {
@@ -268,6 +304,8 @@ manualForm.addEventListener('submit', async (e) => {
     unit: getUnitValue(document.getElementById('m-unit-picker')),
     notes: document.getElementById('m-notes').value.trim(),
   };
+
+  if (!checkAmountFilled(document.getElementById('m-dosage'), document.getElementById('m-unit-picker'))) return;
 
   // 同じお薬に同じ時刻が2つあると、通知やアラームが2回ずつになるため、保存させない
   const duplicate = markDuplicateRows();
@@ -425,11 +463,11 @@ function showQrPreview(medications) {
         </div>
         <div class="row">
           <div class="field" style="flex:1">
-            <label>用量</label>
+            <label>用量<span class="required-mark">（必須）</span></label>
             <input type="text" class="qr-edit-dosage" data-index="${i}" value="${escapeHtml(m.dosage || '')}" />
           </div>
           <div class="field unit-picker" style="flex:1" data-unit="${escapeHtml(m.unit || '')}">
-            <label>単位</label>
+            <label>単位<span class="required-mark">（必須）</span></label>
             <select class="unit-select" aria-label="単位"></select>
             <input type="text" class="unit-other" placeholder="単位を入力" aria-label="単位（その他）" hidden />
           </div>
@@ -449,6 +487,16 @@ function showQrPreview(medications) {
 
 document.getElementById('qr-confirm-btn').addEventListener('click', async () => {
   const rows = [...qrPreviewList.querySelectorAll('.card')];
+  // QRコードに用量・単位が載っていないお薬もあるので、登録する前に1つずつ確かめる
+  for (const row of rows) {
+    const nameInput = row.querySelector('.qr-edit-name');
+    if (!nameInput.value.trim()) {
+      showToast('薬の名前を入力してください。', 'error');
+      nameInput.focus();
+      return;
+    }
+    if (!checkAmountFilled(row.querySelector('.qr-edit-dosage'), row.querySelector('.unit-picker'), nameInput.value.trim())) return;
+  }
   const medications = rows.map((row, i) => ({
     name: row.querySelector('.qr-edit-name').value.trim(),
     dosage: row.querySelector('.qr-edit-dosage').value.trim(),
