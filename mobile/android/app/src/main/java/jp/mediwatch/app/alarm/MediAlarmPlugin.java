@@ -1,10 +1,12 @@
 package jp.mediwatch.app.alarm;
 
+import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -30,8 +32,9 @@ import org.json.JSONObject;
  * - snooze({ items, hold })         … 画面から、5 分後にもう一度鳴らす予約を入れる（items は { id, origin: 本来の服薬時刻 }）。
  *                                     hold = false は「あとで」、true は記録待ち（撮影画面を開いたとき）
  * - getStatus() などの戻り値の snoozed … 端末のアラームで「あとで」にした予定（id → もう一度鳴らす時刻）
- * - announce({ text })              … 画面のアラームの文を 1 回読み上げる（端末のアラームが鳴っているあいだは読み上げない）
- * - stopAnnounce()                  … その読み上げを止める
+ * - announce({ text })              … 画面のアラームの文を 1 回読み上げる（端末のアラームが鳴っているあいだは読み上げない）。
+ *                                     音量ボタンで「アラーム」の音量を変えられるようにする
+ * - stopAnnounce()                  … その読み上げを止め、音量ボタンをいつもの音量に戻す
  * - clear()                         … ログアウト時に、予約と保存した予定をすべて消す
  * - getStatus()                     … アラームに必要な許可がそろっているか
  * - requestNotificationPermission() … 通知の許可を求める（Android 13 以降）
@@ -76,19 +79,34 @@ public class MediAlarmPlugin extends Plugin {
     @PluginMethod
     public void announce(PluginCall call) {
         AlarmAnnouncer.speak(getContext(), call.getString("text", ""));
+        // 声は「アラーム」の音量で鳴るので、画面のアラームが読み上げているあいだは、
+        // 音量ボタンで「アラーム」の音量を変えられるようにする（そのままだと「メディア」の音量が変わり、声の大きさは変わらない）
+        setVolumeKeys(AudioManager.STREAM_ALARM);
         call.resolve();
     }
 
     @PluginMethod
     public void stopAnnounce(PluginCall call) {
         AlarmAnnouncer.stop();
+        setVolumeKeys(AudioManager.USE_DEFAULT_STREAM_TYPE); // 音量ボタンを、いつもの音量（記録の映像の再生など）に戻す
         call.resolve();
+    }
+
+    /**
+     * アプリの画面で音量ボタンを押したときに変わる音量を切り替える。
+     * 端末のアラームの画面（AlarmActivity）は、自分で「アラーム」の音量にしている。
+     */
+    private void setVolumeKeys(int streamType) {
+        Activity activity = getActivity();
+        if (activity == null) return;
+        activity.runOnUiThread(() -> activity.setVolumeControlStream(streamType));
     }
 
     @PluginMethod
     public void clear(PluginCall call) {
         Context context = getContext();
         AlarmAnnouncer.stop();
+        setVolumeKeys(AudioManager.USE_DEFAULT_STREAM_TYPE);
         AlarmRinger.dismiss(context);
         new AlarmStore(context).clearAll();
         AlarmScheduler.reschedule(context); // 予定が空なので、予約が取り消される

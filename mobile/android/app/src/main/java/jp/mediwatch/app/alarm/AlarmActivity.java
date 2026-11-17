@@ -65,6 +65,11 @@ import jp.mediwatch.app.R;
  * 画面の上から順に、「いまの時刻 08:20」（小さめ）→「08:00 の」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
  * 大きな時刻は「飲む予定の時刻」なので、「あとで」のあとなどは、いまの時刻とずれる。
  * 取り違えないよう、予定の時刻は「08:00 の お薬の時間です」と文の中に入れ、いまの時刻は言葉を添えて別に出す。
+ * お薬の名前は、白い地にテラコッタの枠で囲む。見出し（藍色）とお薬の名前（墨色）は、どちらも黒に近い色で、
+ * 文字の色だけでは区切りが分からないため（文字を明るい色に変えると、紙色の上で読みにくくなるので、
+ * 文字は濃い色のまま、地と枠の色で分ける）。アプリの中のアラームで、お薬ごとの枠に使っているのと同じ色。
+ * 「あとで」も、押せる場所が分かるよう枠で囲む。いちばん目立たせたいのは「カメラを起動する」なので、
+ * 枠と文字は灰色にして、「映像なし」（藍色の枠）より控えめにする。
  * 以前はいちばん上に揺れるベルの印を置いていたが、その分（約 110dp）だけ「カメラを起動する」が小さくなるので外した
  * （何の知らせかは「お薬の時間です」の文字と、音・読み上げで伝わる。Web 版からも外してある）。
  *
@@ -76,12 +81,12 @@ public class AlarmActivity extends AppCompatActivity {
     // 色は Web 版（public/css/base.css の :root）と合わせる
     private static final int COLOR_PAPER = Color.parseColor("#FBF7F0"); // 背景（紙の色）
     private static final int COLOR_INK = Color.parseColor("#33312E"); // お薬の名前
-    private static final int COLOR_INK_SOFT = Color.parseColor("#6B6660"); // いまの時刻・用量・案内文・「あとで」
+    private static final int COLOR_INK_SOFT = Color.parseColor("#6B6660"); // いまの時刻・用量・案内文・「あとで」の枠と文字
     private static final int COLOR_INDIGO = Color.parseColor("#2C4A52"); // 「映像なしで「飲んだ」を記録」の枠と文字
     private static final int COLOR_INDIGO_DEEP = Color.parseColor("#1D3338"); // 予定の時刻・「お薬の時間です」
-    private static final int COLOR_TERRACOTTA = Color.parseColor("#D97D54"); // 「カメラを起動する」
+    private static final int COLOR_TERRACOTTA = Color.parseColor("#D97D54"); // 「カメラを起動する」・お薬の名前の枠
     private static final int COLOR_TERRACOTTA_DEEP = Color.parseColor("#B8623E"); // 「カメラを起動する」を押しているあいだ
-    private static final int COLOR_PRESSED_TINT = Color.argb(15, 44, 74, 82); // 「あとで」を押しているあいだ（藍色の 6%）
+    private static final int COLOR_PRESSED_TINT = Color.argb(15, 44, 74, 82); // 枠だけのボタンを押しているあいだ（藍色の 6%）
     /** 見出しの書体（Web 版は Noto Serif JP。端末に入っている明朝体で出す） */
     private static final Typeface SERIF_BOLD = Typeface.create(Typeface.SERIF, Typeface.BOLD);
     /** 部品どうしの間隔（Web 版の --space-2 = 14px） */
@@ -310,7 +315,13 @@ public class AlarmActivity extends AppCompatActivity {
         title.setText("お薬の時間です");
         root.addView(title, below(GAP));
 
+        // お薬の名前は、白い地にテラコッタの枠で囲み、上の見出しと見分けられるようにする
+        // （Web 版の .alarm-meds li。文字の色は、読みやすい濃い色のままにする）
         medsView = text(24, COLOR_INK, Typeface.DEFAULT_BOLD);
+        GradientDrawable medsFrame = rounded(Color.WHITE, dp(20));
+        medsFrame.setStroke(dp(2), COLOR_TERRACOTTA);
+        medsView.setBackground(medsFrame);
+        medsView.setPadding(dp(20), dp(GAP), dp(20), dp(GAP));
         root.addView(medsView, below(GAP));
 
         // 「カメラを起動する」は、残りの高さをすべて使う大きなボタンにする（印の下に文字）
@@ -325,7 +336,7 @@ public class AlarmActivity extends AppCompatActivity {
         noVideo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         noVideo.setTypeface(Typeface.DEFAULT_BOLD);
         noVideo.setTextColor(COLOR_INDIGO);
-        noVideo.setBackground(outlined());
+        noVideo.setBackground(outlined(COLOR_INDIGO));
         noVideo.setStateListAnimator(null); // ボタンの影を出さない
         noVideo.setMinHeight(dp(64));
         noVideo.setPadding(dp(12), dp(12), dp(12), dp(12));
@@ -338,14 +349,15 @@ public class AlarmActivity extends AppCompatActivity {
         note.setText("飲まないときは、「カメラを起動する」の先で選べます。");
         root.addView(note, below(GAP));
 
-        // 「あとで」は、Web 版と同じく、枠も地の色も無い控えめなボタンにする（押しているあいだだけ、薄く色が付く）
+        // 「あとで」は、Web 版と同じく、灰色の枠で囲んだ控えめなボタンにする（.alarm-dialog .btn-ghost）。
+        // 枠が無いと、押せる場所だと分かりにくいため。「映像なし」（藍色の枠）より目立たない色にする
         Button snooze = new Button(this);
         snooze.setText("あとで（5分後にもう一度お知らせ）");
         snooze.setAllCaps(false);
         snooze.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         snooze.setTypeface(Typeface.DEFAULT_BOLD);
         snooze.setTextColor(COLOR_INK_SOFT);
-        snooze.setBackground(pressable(Color.TRANSPARENT, COLOR_PRESSED_TINT, dp(12)));
+        snooze.setBackground(outlined(COLOR_INK_SOFT));
         snooze.setStateListAnimator(null); // ボタンの影を出さない
         snooze.setMinHeight(dp(72));
         snooze.setPadding(dp(16), dp(12), dp(16), dp(12));
@@ -451,12 +463,12 @@ public class AlarmActivity extends AppCompatActivity {
         return states;
     }
 
-    /** 藍色の枠だけのボタンの地（Web 版の .btn-outline）。押しているあいだは、中に薄く色が付く */
-    private Drawable outlined() {
+    /** 枠だけのボタンの地（Web 版の .btn-outline）。stroke は枠の色。押しているあいだは、中に薄く色が付く */
+    private Drawable outlined(int stroke) {
         StateListDrawable states = new StateListDrawable();
         for (int pressed = 1; pressed >= 0; pressed--) {
             GradientDrawable bg = rounded(pressed == 1 ? COLOR_PRESSED_TINT : Color.TRANSPARENT, dp(12));
-            bg.setStroke(dp(2), COLOR_INDIGO);
+            bg.setStroke(dp(2), stroke);
             states.addState(pressed == 1 ? new int[] { android.R.attr.state_pressed } : new int[] {}, bg);
         }
         return states;

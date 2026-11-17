@@ -511,6 +511,16 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
   font-size: var(--fs-md);
   font-weight: 700;
 }
+/* お薬の名前は、白い地にテラコッタの枠で囲む。見出し（藍色）とお薬の名前（墨色）は、どちらも黒に近く、
+   文字の色だけでは区切りが分からないため（文字は読みやすい濃い色のままにし、地と枠の色で分ける）。
+   お薬が複数あるときの枠（.alarm-item）と同じ色 */
+.alarm-meds li {
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--color-terracotta);
+  border-radius: var(--radius-md);
+  background: var(--color-white);
+  line-height: 1.4;
+}
 .alarm-meds span {
   margin-left: 0.5em;
   font-size: var(--fs-sm);
@@ -542,6 +552,10 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
 }
 
 .alarm-note { margin: 0; color: var(--color-ink-soft); }
+
+/* 「あとで」は、押せる場所が分かるよう枠で囲む。いちばん目立たせたいのは「カメラを起動する」なので、
+   枠と文字は灰色にして、「映像なし」（藍色の枠）より控えめにする */
+.alarm-dialog .btn-ghost { border-color: var(--color-ink-soft); }
 
 /* お薬が複数あるとき：お薬ごとに、記録のしかたを選ぶボタンを並べる */
 .alarm-items {
