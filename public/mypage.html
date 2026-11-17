@@ -48,7 +48,6 @@
           </label>
           <p class="text-sm text-muted" style="margin:0;">ご家族の招待コードを入力して、ご家族の服薬を見守ります。</p>
         </div>
-        <p id="f-summary" class="text-sm" style="margin:0;" aria-live="polite"></p>
         <button type="submit" class="btn btn-outline">使う機能を保存する</button>
       </form>
     </section>
@@ -58,9 +57,18 @@
       <h2>お薬の時間のアラーム</h2>
       <p class="text-sm text-muted">お薬の時間になると、スマホで何をしていても画面いっぱいにお知らせし、音を鳴らします。下の設定をすべて「済み」にしてください。</p>
       <ul class="native-alarm-checks" id="native-alarm-checks"></ul>
-      <p class="text-sm" id="native-alarm-next" aria-live="polite"></p>
-      <p class="text-sm text-muted">「済み」の設定をやめたいときは、「設定を変える」を押すとスマホの設定の画面が開くので、そこでオフにしてください。オフにすると、お薬の時間にお知らせできないことがあります。</p>
-      <p class="text-sm text-muted">ご家族の飲み忘れのお知らせ（見守る側の通知）は、いまはアプリでは受け取れません。受け取るときは、Chrome で medi-watch を開き、マイページの「プッシュ通知を有効にする」を押してください。</p>
+      <!-- アラームの設定をやめたいときの説明。下の「ご家族の飲み忘れのお知らせ」とは別の話なので、小見出しを付けて区切る -->
+      <div class="native-alarm-note">
+        <h3>「済み」の設定をやめたいとき</h3>
+        <p class="text-sm text-muted">「設定を変える」を押すとスマホの設定の画面が開くので、そこでオフにしてください。オフにすると、お薬の時間にお知らせできないことがあります。</p>
+      </div>
+    </section>
+
+    <!-- ネイティブ版で、「家族を見守る」を使う人だけに表示する。アラームの設定とは別の話なので、欄を分ける -->
+    <section class="card" id="native-family-card" style="margin-top: var(--space-3);" hidden>
+      <h2>ご家族の飲み忘れのお知らせ</h2>
+      <p class="text-sm"><strong>いまは、このアプリでは受け取れません。</strong></p>
+      <p class="text-sm text-muted">受け取るときは、Chrome で medi-watch を開き、マイページの「プッシュ通知を有効にする」を押してください。</p>
     </section>
 
     <section class="card card--warm" id="web-push-card" style="margin-top: var(--space-3);">
