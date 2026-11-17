@@ -4,17 +4,18 @@ Web 版の画面（`../public/`）をそのまま Android アプリに同梱し�
 
 - アプリを閉じていても、画面が消えていても、ロック中でも、ほかのアプリを使っている最中でも、服薬時刻に全画面で「カメラを起動する」を出し、止めるまで音を鳴らします。音のあいまに「お薬の時間です。○○を3錠服用してください。」と、お薬の名前と用量を読み上げます（スマホの読み上げ機能を使います）。
 - API はこれまでどおり Render のサーバー（`public/js/config.js` の `NATIVE_SERVER_ORIGIN`）を使います。サーバー・データベースは Web 版と共通です。
-- 家族への「飲み忘れ」プッシュ通知は、今はアプリでは受け取れません（WebView が Web Push に対応していないため）。`docs/卒論(参考資料)/後でできるようにしたいこと/` を参照。
+- 家族への「飲み忘れ」などのプッシュ通知は、Firebase Cloud Messaging（FCM）で受け取ります（WebView が Web Push に対応していないため）。`@capacitor/push-notifications` を使い、画面側の処理は `public/js/push.js` にあります。準備は下の「家族へのプッシュ通知（Firebase）」を参照。
 
 ## フォルダ構成
 
 ```
 mobile/
 ├── package.json            … Capacitor（ルートの package.json とは別。Render には影響しない）
-├── capacitor.config.json   … アプリID・アプリ名・同梱する画面（webDir: ../public）
+├── capacitor.config.json   … アプリID・アプリ名・同梱する画面（webDir: ../public）・アプリ表示中の通知の出し方
 └── android/                … Android Studio で開くプロジェクト
+    ├── app/google-services.json         … Firebase の設定（Firebase コンソールからダウンロードして置く）
     └── app/src/main/
-        ├── AndroidManifest.xml          … 権限・アラーム画面・受信処理の登録
+        ├── AndroidManifest.xml          … 権限・アラーム画面・受信処理・家族への通知のアイコンとチャンネルの登録
         └── java/jp/mediwatch/app/
             ├── MainActivity.java        … アプリ本体（WebView）。アラームから来たら home.html?take=ID を開く
             └── alarm/
@@ -132,9 +133,30 @@ Git に入っていないもの（`node_modules/`、`android/app/src/main/assets
 8. 服薬時刻の前にスマホの電源を切り、時刻を過ぎてから（60分以内に）電源を入れる。ロックを解除して数秒〜数十秒後に、アプリを開かなくてもアラームが鳴ることを確認する。
    - 鳴らない場合は、機種の設定でアプリの「自動起動」が止められていないかを確かめる（Xiaomi・OPPO などは、初期設定では起動時の知らせをアプリに渡さない）。
 
+9. 家族へのプッシュ通知（下の「家族へのプッシュ通知（Firebase）」の準備が済んでから）
+   - 見守る側のアカウントでアプリにログインし、マイページの「ご家族のお知らせ」で「お知らせを受け取る」を押す（すでに「通知は有効です ✓」なら押さなくてよい）。
+   - 「テスト通知を送る」を押し、通知が届くことを確認する。ホームボタンでアプリを閉じた状態・最近使ったアプリの一覧から消した状態でも試す。
+   - 「通知の状態を確認する」で、「Firebase の鍵（アプリへの通知）：設定済み」と「うちアプリ 1 台」以上になっていることを確認する。
+   - 見守られる側のアカウントで数分後のお薬を登録し、記録しないまま服薬時刻から30分待つ。見守る側のスマホに「飲み忘れの可能性：○○さん」が届き、タップするとその人の情報を表示したホーム画面が開くことを確認する。
+
 ### ログ（確認用）
 アプリの画面のコンソール：パソコンの Chrome で `chrome://inspect` を開き、USB でつないだスマホのアプリ（WebView）の「inspect」を押す。
-ネイティブ側のログ：Android Studio の「Logcat」で `MediAlarm` を検索する。
+ネイティブ側のログ：Android Studio の「Logcat」で `MediAlarm` を検索する。家族への通知は `Capacitor/Plugin` や `FirebaseMessaging` で検索する。
+サーバー側の送信のログ：Render の「Logs」で `[notificationService]` を検索する。
+
+## 家族へのプッシュ通知（Firebase）
+
+アプリの画面（WebView）は Web Push に対応していないため、アプリへの通知は Firebase Cloud Messaging（FCM）で送る。サーバーは `firebase-admin` で送り、Web 版（ブラウザ）へはこれまでどおり Web Push で送る。
+
+1. Firebase コンソール（https://console.firebase.google.com）でプロジェクトを作り、Android アプリ（パッケージ名 `jp.mediwatch.app`）を追加する。
+2. ダウンロードした `google-services.json` を `mobile/android/app/` に置く（`build.gradle` と同じ階層）。このファイルがあると、`android/app/build.gradle` が Firebase のプラグインを自動で使う。無いままビルドするとアプリは動くが、家族への通知は届かない。
+3. 「プロジェクトの設定」→「サービス アカウント」→「新しい秘密鍵を生成」でダウンロードした JSON の中身を、Render の環境変数 `FIREBASE_SERVICE_ACCOUNT` に貼り付ける。**この JSON は秘密の鍵なので、リポジトリには置かない。**
+4. Supabase の SQL Editor で `src/supabase/migrations/0007_fcm_push.sql` を実行する。
+5. `npm install` → `npx cap sync android` を実行し、APK を作り直す。
+
+- アプリでは、自分のお薬の時間の「お薬の時間です」の通知はサーバーから送らない（端末のアラームが知らせるため、二重になるのを防ぐ）。届くのは家族向けのお知らせ（服薬完了・服薬映像・飲み忘れ・見守りの終了）だけ。
+- 通知は「ご家族のお知らせ」という通知チャンネル（重要度「高」）で出す。チャンネルは `public/js/push.js` が登録のときに作る。
+- アプリを開いているあいだに届いた通知も、`capacitor.config.json` の `presentationOptions` の設定で画面の上部に出す。
 
 ### アイコンを変えるとき
 アプリのアイコン（Web 版の `public/assets/` と、`android/app/src/main/res/mipmap-*/`）は、リポジトリのルートの `scripts/generate-icons.ps1` で描いている。図柄や色を変えるときはこのスクリプトを直し、ルートで次を実行して全サイズを作り直す（Windows 標準の機能だけで動く）。

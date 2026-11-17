@@ -15,11 +15,12 @@ const featuresForm = document.getElementById('features-form');
 const beWatchedInput = document.getElementById('f-be-watched');
 const watchInput = document.getElementById('f-watch');
 
-// ネイティブ版：「ご家族の飲み忘れのお知らせ（アプリでは受け取れない）」の欄は、「家族を見守る」を使う人にだけ出す
+// ネイティブ版：「ご家族のお知らせ」の欄は、「家族を見守る」を使う人にだけ出す
 // （見守られる側・自分のお薬の管理だけの人には関係がないため。保存した設定に合わせる）
+// Web 版では「通知設定」として、いつも表示する（自分のお薬の時間のお知らせにも使うため）
 function renderNativeFamilyCard(profile) {
-  document.getElementById('native-family-card').hidden =
-    !NativeAlarm.available() || profile?.can_watch === false;
+  if (!PushSetup.isNative) return;
+  document.getElementById('web-push-card').hidden = profile?.can_watch === false;
 }
 
 // プロフィール読み込み
@@ -86,12 +87,19 @@ profileForm.addEventListener('submit', async (e) => {
 });
 
 // ---- ネイティブ版（Android アプリ）：お薬の時間のアラームの設定 ----
-// アプリでは Web Push を使えないため、「通知設定」の代わりにアラームの設定を表示する
+// アプリでは、自分のお薬の時間は端末のアラームで知らせる（サーバーからの「お薬の時間です」の通知は送らない）。
+// 通知の欄は、ご家族のお知らせ（飲み忘れなど）を受け取るためだけに使う
+if (PushSetup.isNative) {
+  document.getElementById('push-card-title').textContent = 'ご家族のお知らせ';
+  document.getElementById('push-card-desc').textContent =
+    'ご家族がお薬を飲み忘れたときや、お薬を飲んだときに、このスマホに通知でお知らせします。ご自分のお薬の時間は、上のアラームでお知らせします。';
+  document.getElementById('enable-notif-btn').textContent = 'お知らせを受け取る';
+  renderNativeFamilyCard(Session.profile());
+}
 if (NativeAlarm.available()) {
   const nativeCard = document.getElementById('native-alarm-card');
   const renderNativeChecks = () => NativeAlarm.renderChecks(document.getElementById('native-alarm-checks'));
   nativeCard.hidden = false;
-  document.getElementById('web-push-card').hidden = true;
   renderNativeChecks().then(() => {
     if (location.hash === '#native-alarm-card') nativeCard.scrollIntoView({ block: 'start' });
   });
@@ -133,11 +141,13 @@ document.getElementById('status-notif-btn').addEventListener('click', async () =
   const out = document.getElementById('notif-status');
   try {
     const s = await Api.getPushStatus();
+    const enableLabel = notifBtn.textContent.includes('✓') ? '' : ` ← 「${notifBtn.textContent}」を押す`;
     const lines = [
       `サーバー時刻（日本時間）：${s.server_time_jst}`,
-      `VAPID 鍵：${s.vapid_configured ? '設定済み' : '未設定 ← Render の環境変数を確認'}`,
-      `登録済みの端末：${s.devices} 台${s.devices === 0 ? ' ← 「プッシュ通知を有効にする」を押す' : ''}`,
-      `この端末の通知の許可：${'Notification' in window ? Notification.permission : '非対応'}`,
+      `VAPID 鍵（ブラウザへの通知）：${s.vapid_configured ? '設定済み' : '未設定 ← Render の環境変数を確認'}`,
+      `Firebase の鍵（アプリへの通知）：${s.fcm_configured ? '設定済み' : '未設定 ← Render の環境変数 FIREBASE_SERVICE_ACCOUNT を確認'}`,
+      `登録済みの端末：${s.devices} 台（うちアプリ ${s.devices_fcm ?? 0} 台）${s.devices === 0 ? enableLabel : ''}`,
+      `この端末の通知の許可：${await PushSetup.permissionState()}`,
       '',
       '【服薬スケジュール】',
       ...(s.schedules.length

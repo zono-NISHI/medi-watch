@@ -47,6 +47,7 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - アプリ: http://localhost:3000 ／ ヘルスチェック: `GET /api/health`
 - テストランナー・リンター・ビルド工程はない。フロントは素のファイルをそのまま配信している。動作確認は Render にデプロイしたサイトをブラウザで開いて行う（「運用ルール」の「動作確認」を参照）。`POST /api/push/test` を使うと、cron を待たずにログイン中の本人の端末へテスト通知を送れる。
 - VAPID 鍵の生成: `npx web-push generate-vapid-keys`
+- ネイティブ版への通知（FCM）には、環境変数 `FIREBASE_SERVICE_ACCOUNT`（Firebase のサービスアカウントの JSON。秘密の鍵）が要る。未設定ならアプリへの通知だけが送られない。
 - 初期設定: `.env.example` を `.env` にコピーする。`DEBUG_AUTH=true` にすると、本番以外で認証の詳細ログが出る。
 - カメラ・プッシュ通知・Service Worker は HTTPS か `localhost` でのみ動く。
 
@@ -60,7 +61,7 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
   - `createUserClient(token)`: ユーザー権限で RLS が適用される。`requireAuth`（`src/middleware/auth.js`）がこれを `req.supabase` として、`req.user`・`req.accessToken` と一緒に付与する。ルートのハンドラは `req.supabase` 経由でクエリし、アクセス制御を RLS に任せる。
 - ルートの書き方: ハンドラを `asyncHandler` で包み、DB エラーは `sendSupabaseError(res, error, '日本語メッセージ')`（`src/lib/utils.js`）で返す。この関数が PG のエラーコードを HTTP ステータスと `code` に変換する。エラーのレスポンスは `{ code?, error: '<そのまま利用者に見せてよい日本語>' }` の形で、フロントは文言ではなく `code` で分岐する。
 - `src/services/reminderCron.js` は node-cron で毎分、Web プロセス内で動く。処理順は、有効なスケジュールから今日の `pending` の `medication_logs` を作成 → 患者へリマインド通知 → `scheduled_at` から30分過ぎても pending のままのログについて家族へ「飲み忘れ」通知（`notification_logs` で二重送信を防ぐ）。**日付・時刻はすべて JST（`+09:00`）で扱う。** Render などのサーバーは UTC で動くため。
-- `src/services/notificationService.js` が Web Push を送信する（`notifyCareGroup`, `vapidConfigured`）。`src/services/jahisParser.js` は薬局の JAHIS 形式の QR コードを解析する。
+- `src/services/notificationService.js` がプッシュ通知を送信する（`notifyCareGroup`, `sendToSubscription`, `vapidConfigured`, `fcmConfigured`）。宛先（`push_subscriptions.kind`）がブラウザ（`webpush`）なら `web-push`、ネイティブ版（`fcm`）なら `firebase-admin` で送る。cron の「お薬の時間です」のリマインドは `webpush` の端末だけに送る（ネイティブ版は端末のアラームが知らせるため）。`src/services/jahisParser.js` は薬局の JAHIS 形式の QR コードを解析する。
 
 ### データベース（`src/supabase/migrations/`）
 - マイグレーションツールは使っていない。番号つきの各 `.sql` を Supabase の SQL Editor に貼り付けて、番号順（0001 → 0002 → …）に実行する。スキーマ変更は次の番号のファイルとして追加し、既存ファイルと同じヘッダーコメント（目的・実行場所・前提となるマイグレーション）を付ける。
@@ -69,10 +70,11 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - 0004（相互見守り）: 1つのアカウントが「見守る側」と「見守られる側」の両方になれる。`profiles.role` で表示する画面を分けることはもうしない。1人が持てる見守りグループ（招待コード）は1つまで。見守り相手の一覧は RPC の `list_my_watchers` / `list_my_watching` で取得する。
 - 0005（使う機能の選択）: `profiles.can_watch`（家族を見守る）／`can_be_watched`（家族に見守ってもらう）で使える機能を決める。登録画面の「使い方」（`watched` / `watcher` / `self`）で初期値が決まり、マイページで変更できる。OFF の人の見守り開始・招待コード発行や、相手がいるあいだの OFF はDBのトリガーが止め、`HINT` の識別子を `sendSupabaseError` が `code` に変換する。`profiles.role` は並び順・初期表示だけに使う。
 - 0006（招待コードの作り直し）: 招待コードは `generate_invite_code()` が作る英大文字・数字8文字のランダムな値（見間違えやすい文字は除く）。見守られる本人が見守りを外すとトリガーで自動的に作り直され、本人は RPC `regenerate_my_invite_code`（`POST /api/care-groups/mine/regenerate`）でも作り直せる。照合は大文字・小文字を区別しない。
+- 0007（ネイティブ版の FCM）: `push_subscriptions.kind`（`webpush` / `fcm`）を追加。FCM のトークンは `endpoint` 列に入れ、`p256dh`・`auth_key` は `webpush` のときだけ必須。
 - `src/supabase/templates/*.html` は Supabase Auth のメールテンプレート（ダッシュボードで設定する）。
 
 ### フロントエンド（`public/`）
-- バンドラーもモジュールも使わない、素の JS によるマルチページ構成。各 HTML は通常の `<script>` タグで、まず `js/config.js`（`window.APP_CONFIG`）→ `js/api.js` を読み込む。ログイン後の画面はその後に `js/ui.js` →（`home`・`mypage` は `js/push.js`）→（`home`・`medications`・`logs` は `js/viewTarget.js`）→ `js/alarm.js` → `js/pages/<page>.js` を読み込む。認証系の画面（`login` / `signup` / `verify-email` / `reset-password`）は `js/validate.js` → `js/ui.js` を読み込み、画面の処理は HTML 内のインラインスクリプトに書かれている。共通処理はグローバル変数としてページから参照されるため、読み込み順が重要。
+- バンドラーもモジュールも使わない、素の JS によるマルチページ構成。各 HTML は通常の `<script>` タグで、まず `js/config.js`（`window.APP_CONFIG`）→ `js/api.js` を読み込む。ログイン後の画面はその後に `js/ui.js` → `js/push.js` →（`home`・`medications`・`logs` は `js/viewTarget.js`）→ `js/alarm.js` → `js/pages/<page>.js` を読み込む。認証系の画面（`login` / `signup` / `verify-email` / `reset-password`）は `js/validate.js` → `js/ui.js` を読み込み、画面の処理は HTML 内のインラインスクリプトに書かれている。共通処理はグローバル変数としてページから参照されるため、読み込み順が重要。
 - `api.js`: `Session`（localStorage のキー `okusuri_techo_session`）、`ApiError`（`code`/`status`/`field`）、fetch のラッパー。`/api/auth/refresh` でアクセストークンを自動更新する。更新処理は1つだけ実行して共有するため、同時に複数のリクエストがあってもリフレッシュトークンを使い切らない。
 - `ui.js`: トースト、`handleApiError`、`requireLoginOrRedirect`、ナビゲーション。
 - `viewTarget.js`（`ViewTarget`）: 表示する人（自分／見守っている家族）の切り替え。選んだ人は localStorage に保存し、ホーム・お薬・記録のタブで共有する。家族の表示中は `body.is-watching` になり、配色が変わる。
@@ -87,4 +89,4 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - アプリの画面は `https://localhost` から開くため、API は `config.js` の `NATIVE_SERVER_ORIGIN`（Render の URL）へ送る。`server.js` は `/api` でこのオリジンだけを CORS で許可している。
 - `public/` を変えたら、`mobile/` で `npx cap sync android` を実行して取り込み、APK を作り直すまでアプリの画面には反映されない（API の変更はすぐ反映される）。
 - バンドラーを使わないので `@capacitor/core` は読み込まない。ネイティブのプラグインは `window.Capacitor.nativePromise('MediAlarm', メソッド名, 引数)` で呼ぶ。
-- WebView は Web Push に対応していないため、ネイティブ版では家族への通知（`push.js`）は使えない。
+- WebView は Web Push に対応していないため、ネイティブ版の家族への通知は Firebase Cloud Messaging（`@capacitor/push-notifications`）で受け取る。`push.js` の `PushSetup` が、ネイティブ版かどうかで Web Push と FCM を切り替える。プラグインは `window.Capacitor.nativePromise('PushNotifications', …)` と `window.Capacitor.addListener('PushNotifications', …)` で呼ぶ。通知をタップしたときの画面の移動のため、`push.js` はログイン後のすべての画面で読み込む。`mobile/android/app/google-services.json`（Firebase コンソールで取得）が無いと、ビルドはできるが通知は届かない。

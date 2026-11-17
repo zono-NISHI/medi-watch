@@ -1,10 +1,15 @@
 // ============================================================
 //  通知サービス
-//  - Web Push API を使い、家族・介護者の端末へプッシュ通知を送信
+//  - 家族・介護者の端末へプッシュ通知を送信する
+//    ・ブラウザ（Web 版・PWA）… Web Push（web-push）
+//    ・ネイティブ版（Android アプリ）… Firebase Cloud Messaging（firebase-admin）
+//      （アプリの画面の WebView は Web Push に対応していないため）
 //  - 送信ログを notification_logs に記録
 //  - service_role 権限（supabaseAdmin）を使用するためRLSの影響を受けない
 // ============================================================
 const webpush = require('web-push');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getMessaging } = require('firebase-admin/messaging');
 const { supabaseAdmin } = require('../supabase/supabase');
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
@@ -17,10 +22,107 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
     webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
     vapidConfigured = true;
   } catch (err) {
-    console.warn('[notificationService] VAPID鍵の設定に失敗しました。プッシュ通知は無効になります。', err.message);
+    console.warn('[notificationService] VAPID鍵の設定に失敗しました。Web Push は無効になります。', err.message);
   }
 } else {
-  console.warn('[notificationService] VAPID鍵が未設定のため、プッシュ通知は送信されません。');
+  console.warn('[notificationService] VAPID鍵が未設定のため、Web Push は送信されません。');
+}
+
+// ネイティブ版へ送るための Firebase のサービスアカウントの鍵。
+// Render の環境変数 FIREBASE_SERVICE_ACCOUNT に、Firebase コンソールでダウンロードした JSON の中身をそのまま入れる
+// （貼り付けにくい場合に備えて、JSON を Base64 にした値も受け付ける）。
+function parseServiceAccount(raw) {
+  const text = raw.trim();
+  return JSON.parse(text.startsWith('{') ? text : Buffer.from(text, 'base64').toString('utf8'));
+}
+
+let fcmMessaging = null;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    const app = initializeApp({ credential: cert(parseServiceAccount(process.env.FIREBASE_SERVICE_ACCOUNT)) });
+    fcmMessaging = getMessaging(app);
+  } catch (err) {
+    // 鍵の中身はログに出さない（秘密の値のため）
+    console.warn('[notificationService] Firebase の鍵の読み込みに失敗しました。アプリへの通知は無効になります。', err.message);
+  }
+} else {
+  console.warn('[notificationService] FIREBASE_SERVICE_ACCOUNT が未設定のため、アプリ（ネイティブ版）への通知は送信されません。');
+}
+const fcmConfigured = !!fcmMessaging;
+
+// FCM で、この宛先（トークン）がもう使えないことを表すエラー。アプリの削除・データの消去などで起きる
+const FCM_GONE_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+]);
+
+// アプリ側（public/js/push.js）で作る通知チャンネル。重要度「高」で、画面の上に表示する
+const FCM_CHANNEL_ID = 'family_notice';
+
+// 宛先の種類ごとに、送る仕組みが用意できているか
+function canSend(sub) {
+  return sub.kind === 'fcm' ? fcmConfigured : vapidConfigured;
+}
+
+// 1台の端末へ送る。
+// 戻り値: { ok, status, message, gone }（gone … 宛先が無効になっており、DB から消すべき）
+async function sendToSubscription(sub, payload, { ttlSeconds = 24 * 60 * 60 } = {}) {
+  if (!canSend(sub)) {
+    return {
+      ok: false,
+      status: null,
+      message: sub.kind === 'fcm' ? 'サーバーに Firebase の鍵が設定されていません。' : 'サーバーに VAPID 鍵が設定されていません。',
+      gone: false,
+    };
+  }
+
+  if (sub.kind === 'fcm') {
+    // data の値は文字列でなければならない。通知をタップしたときに開く画面を決めるのに使う（push.js）
+    const data = {};
+    for (const key of ['type', 'logId', 'patientId', 'url']) {
+      if (payload[key] != null) data[key] = String(payload[key]);
+    }
+    try {
+      await fcmMessaging.send({
+        token: sub.endpoint,
+        notification: { title: payload.title, body: payload.body },
+        data,
+        android: {
+          // 省電力状態（Doze）でも後回しにされないよう high にする（Web Push の urgency: 'high' と同じ考え方）
+          priority: 'high',
+          ttl: ttlSeconds * 1000,
+          notification: { channelId: FCM_CHANNEL_ID, sound: 'default' },
+        },
+      });
+      return { ok: true, status: 200, message: '', gone: false };
+    } catch (err) {
+      return {
+        ok: false,
+        status: err.code || null,
+        message: String(err.message).slice(0, 200),
+        gone: FCM_GONE_CODES.has(err.code),
+      };
+    }
+  }
+
+  try {
+    const r = await webpush.sendNotification(
+      { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
+      JSON.stringify(payload),
+      // 省電力状態（Android の Doze など）でも後回しにされないよう、urgency を high にする。
+      // TTL：端末がオフラインの間だけ保持し、古くなったお知らせが何日も後に届かないようにする。
+      { TTL: ttlSeconds, urgency: 'high' }
+    );
+    return { ok: true, status: r.statusCode, message: '', gone: false };
+  } catch (err) {
+    // 410/404はサブスクリプション失効
+    return {
+      ok: false,
+      status: err.statusCode || null,
+      message: String(err.body || err.message).slice(0, 200),
+      gone: err.statusCode === 410 || err.statusCode === 404,
+    };
+  }
 }
 
 // 家族宛ての通知には「誰の」お知らせかを必ず入れる。
@@ -57,7 +159,7 @@ async function getProfileName(userId) {
 
 // 指定したユーザーの全端末へプッシュ通知を送り、送れた台数を返す
 async function sendToUsers(userIds, payload) {
-  if (!vapidConfigured || !userIds || userIds.length === 0) return 0;
+  if (!userIds || userIds.length === 0) return 0;
 
   const { data: subs, error: subErr } = await supabaseAdmin
     .from('push_subscriptions')
@@ -65,30 +167,21 @@ async function sendToUsers(userIds, payload) {
     .in('user_id', userIds);
 
   if (subErr) throw subErr;
-  if (!subs || subs.length === 0) return 0;
+  // 送る仕組み（VAPID 鍵・Firebase の鍵）が用意できている種類の端末だけに送る
+  const targets = (subs || []).filter(canSend);
+  if (targets.length === 0) return 0;
 
   let sentCount = 0;
   await Promise.all(
-    subs.map(async (sub) => {
-      try {
-        await webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: { p256dh: sub.p256dh, auth: sub.auth_key },
-          },
-          JSON.stringify(payload),
-          // 省電力状態（Android の Doze など）でも後回しにされないよう、テスト通知と同じく high にする。
-          // TTL：端末がオフラインの間は1日だけ保持し、古くなったお知らせが何日も後に届かないようにする。
-          { TTL: 24 * 60 * 60, urgency: 'high' }
-        );
+    targets.map(async (sub) => {
+      const r = await sendToSubscription(sub, payload);
+      if (r.ok) {
         sentCount += 1;
-      } catch (err) {
-        // 410/404はサブスクリプション失効。DBから削除してクリーンアップ。
-        if (err.statusCode === 410 || err.statusCode === 404) {
-          await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
-        } else {
-          console.error('[notificationService] 送信失敗:', sub.id, err.message);
-        }
+      } else if (r.gone) {
+        // 宛先が無効になっている（ブラウザの購読の失効・アプリの削除など）。DBから削除してクリーンアップ。
+        await supabaseAdmin.from('push_subscriptions').delete().eq('id', sub.id);
+      } else {
+        console.error('[notificationService] 送信失敗:', sub.id, sub.kind, r.status, r.message);
       }
     })
   );
@@ -165,4 +258,11 @@ async function notifyCareGroup({ patientId, logId, type }) {
   return { sent: sentCount, targeted: recipients.length };
 }
 
-module.exports = { notifyCareGroup, notifyWatchRemoved, vapidConfigured, VAPID_PUBLIC_KEY };
+module.exports = {
+  notifyCareGroup,
+  notifyWatchRemoved,
+  sendToSubscription,
+  vapidConfigured,
+  fcmConfigured,
+  VAPID_PUBLIC_KEY,
+};

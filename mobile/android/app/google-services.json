@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "824534554152",
+    "project_id": "medi-watch-496ea",
+    "storage_bucket": "medi-watch-496ea.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:824534554152:android:fd054013730a085320071d",
+        "android_client_info": {
+          "package_name": "jp.mediwatch.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBXoMrmu63uuuAWnIjPAQWiMvol0HLh1oA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
