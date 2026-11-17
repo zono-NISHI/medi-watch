@@ -71,7 +71,11 @@ function renderMedications(medications) {
   container.innerHTML = medications
     .map((m) => {
       const tags = activeSchedules(m)
-        .map((s) => `<span class="med-schedule-tag">${formatTime(s.scheduled_time)} ・ ${mealTimingLabel(s.meal_timing)}</span>`)
+        .map((s) => {
+          // 「指定なし」のときは「08:00」だけにする（「08:00 ・ 指定なし」とは書かない）
+          const note = mealTimingNote(s.meal_timing);
+          return `<span class="med-schedule-tag">${formatTime(s.scheduled_time)}${note ? ` ・ ${note}` : ''}</span>`;
+        })
         .join('');
       return `
         <div class="med-card">

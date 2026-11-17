@@ -128,6 +128,12 @@ function mealTimingLabel(value) {
   return map[value] || value;
 }
 
+// 一覧やカードに添える「飲むタイミング」。「指定なし」は書いても情報にならないので空文字を返す
+// （登録画面の選択肢には mealTimingLabel をそのまま使い、「指定なし」を選べるようにしておく）
+function mealTimingNote(value) {
+  return value === 'anytime' ? '' : mealTimingLabel(value);
+}
+
 function dowLabel(arr) {
   const labels = ['日', '月', '火', '水', '木', '金', '土'];
   if (!arr || arr.length === 7) return '毎日';

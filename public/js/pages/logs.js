@@ -309,7 +309,9 @@ function renderScheduleOptions() {
   addSchedule.innerHTML = list
     .map((s) => {
       const med = s.medications || {};
-      return `<option value="${s.id}">${formatTime(s.scheduled_time)}　${escapeHtml(med.name || '（薬名未設定）')}（${escapeHtml(mealTimingLabel(s.meal_timing))}）</option>`;
+      // 「指定なし」のときは括弧ごと付けない（「8:00　○○」だけにする）
+      const note = mealTimingNote(s.meal_timing);
+      return `<option value="${s.id}">${formatTime(s.scheduled_time)}　${escapeHtml(med.name || '（薬名未設定）')}${note ? `（${escapeHtml(note)}）` : ''}</option>`;
     })
     .join('');
 
