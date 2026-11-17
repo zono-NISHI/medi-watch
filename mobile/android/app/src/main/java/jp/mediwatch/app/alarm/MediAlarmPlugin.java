@@ -36,7 +36,8 @@ import org.json.JSONObject;
  *                                     音量ボタンで「アラーム」の音量を変えられるようにする
  * - stopAnnounce()                  … その読み上げを止め、音量ボタンをいつもの音量に戻す
  * - clear()                         … ログアウト時に、予約と保存した予定をすべて消す
- * - getStatus()                     … アラームに必要な許可がそろっているか
+ * - getStatus()                     … アラームに必要な許可がそろっているか。
+ *                                     changeable には、利用者が端末の設定画面で変えられる許可かどうかを入れる
  * - requestNotificationPermission() … 通知の許可を求める（Android 13 以降）
  * - openSettings({ target })        … 許可を変える設定画面を開く
  */
@@ -183,6 +184,20 @@ public class MediAlarmPlugin extends Plugin {
             exact = am.canScheduleExactAlarms();
         }
         s.put("exactAlarm", exact);
+
+        // 利用者が端末の設定画面で変えられる許可か（false なら、マイページに「設定を変える」を出さない）
+        // - 全画面での通知: Android 14 から設定画面で変えられる（13 以前はいつも許可されている）
+        // - ほかのアプリの上に重ねて表示: Android 6 から設定画面で変えられる
+        // - アラームとリマインダー: 設定画面のスイッチ（SCHEDULE_EXACT_ALARM）を使うのは Android 12（31・32）だけ。
+        //   Android 13 以降は、インストールした時点で受け取る USE_EXACT_ALARM でアラームを鳴らすため、
+        //   設定画面のスイッチはオフのまま変えられない表示になるが、アラームは鳴る（マニフェストを参照）
+        JSObject changeable = new JSObject();
+        changeable.put("notifications", true);
+        changeable.put("fullScreen", Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE);
+        changeable.put("overlay", Build.VERSION.SDK_INT >= Build.VERSION_CODES.M);
+        changeable.put("exactAlarm", Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+            && Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU);
+        s.put("changeable", changeable);
 
         AlarmStore store = new AlarmStore(context);
         s.put("nextAlarmAt", store.nextAt()); // 予約が無ければ 0
