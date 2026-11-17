@@ -19,7 +19,7 @@ const SELF_TARGET = { id: profile.id, isSelf: true, canViewVideo: true };
 
 // 服薬アラーム（js/alarm.js）の「カメラを起動する」から来たとき（?take=スケジュールID）
 const takeFromUrl = new URLSearchParams(location.search).get('take');
-// ネイティブ版の端末のアラームの「映像なしで「飲んだ」を記録」から来たとき（?record=スケジュールID）
+// ネイティブ版の端末のアラームの「飲みました（映像なしで記録する）」から来たとき（?record=スケジュールID）
 // 開いただけで記録される入り口なので、ネイティブ版でだけ受け付ける
 // （ブラウザ版で受け付けると、細工したリンクを開かせるだけで「飲んだ」と記録させられてしまう）
 const recordParam = new URLSearchParams(location.search).get('record');
@@ -137,14 +137,14 @@ async function startTakeFromAlarm(scheduleId) {
   startCameraBtn.click();
 }
 
-// ネイティブ版の端末のアラームの「映像なしで「飲んだ」を記録」から来たとき。そのお薬を、映像なしで記録する
+// ネイティブ版の端末のアラームの「飲みました（映像なしで記録する）」から来たとき。そのお薬を、映像なしで記録する
 // （端末のアラームの画面はログインの情報を持たないので、記録はこの画面が代わりに行う）
 async function recordWithoutVideoFromAlarm(scheduleId) {
   const item = lastMerged.find(({ schedule }) => schedule.id === scheduleId);
   if (item?.log?.status && item.log.status !== 'pending') return; // もう記録してある（ほかの端末で記録した など）
   // 今日の予定に無い・まだ服薬時刻の前、というときは記録しない（押していないお薬を「飲んだ」にしないため）
   if (!item || !isPastDue(item.schedule.scheduled_time)) {
-    showToast('記録できませんでした。下の一覧の「飲んだ」から記録してください。', 'error');
+    showToast('記録できませんでした。下の一覧の「お薬を飲む」から記録してください。', 'error');
     return;
   }
   const medName = item.schedule.medications?.name || 'お薬';
@@ -286,7 +286,7 @@ function renderSchedules(merged, target, hasSchedules) {
 
       const actionHtml =
         editable && status === 'pending'
-          ? `<button class="btn btn-accent btn--sm" data-action="take" data-log-id="${log?.id || ''}" data-schedule-id="${schedule.id}" data-med-name="${escapeHtml(med.name || '')}">飲んだ</button>`
+          ? `<button class="btn btn-accent btn--sm" data-action="take" data-log-id="${log?.id || ''}" data-schedule-id="${schedule.id}" data-med-name="${escapeHtml(med.name || '')}">お薬を飲む</button>`
           : status === 'taken' && log?.video_url && target.canViewVideo
           ? `<button class="btn btn-outline btn--sm" data-action="view-video" data-log-id="${log.id}">映像を見る</button>`
           : '';
@@ -388,9 +388,6 @@ let recordTimer = null;
 let finishing = false; // 自動の記録とボタンの記録が重ならないようにする
 
 const takeSubEl = document.getElementById('take-modal-sub');
-// 「映像なしで記録」のボタンは、録画中は「映像つき」のボタンと対になる言い方にする
-const LABEL_NO_VIDEO = '映像なしで「飲んだ」を記録';
-const LABEL_NO_VIDEO_RECORDING = '飲みました（映像なしで記録する）';
 
 async function openTakeModal({ logId, scheduleId, medName }) {
   currentLogId = logId || (await ensureLogExists(scheduleId));
@@ -426,7 +423,6 @@ function resetCameraUi() {
   startCameraBtn.hidden = false;
   finishTakeBtn.hidden = true;
   takeWithoutVideoBtn.hidden = false;
-  takeWithoutVideoBtn.textContent = LABEL_NO_VIDEO;
   takeSubEl.textContent = `服用後、ボタンを押して記録してください。カメラの利用は任意です。録画は${MAX_RECORD_SECONDS}秒たつと自動で終わり、そのまま記録されます。`;
   modal.classList.remove('is-recording');
   recordedChunks = [];
@@ -463,10 +459,9 @@ startCameraBtn.addEventListener('click', async () => {
     recordIndicator.hidden = false;
     startCameraBtn.hidden = true;
     finishTakeBtn.hidden = false;
-    // 録画中も「映像なしで記録」を選べるようにする（アラームから来るとカメラがすぐ起動するため、
+    // 録画中も「飲みました（映像なしで記録する）」を選べるようにする（アラームから来るとカメラがすぐ起動するため、
     // 隠すと「×」で閉じない限り映像なしを選べない）。ボタンが1つ増える分、映像の枠を低くし、
     // 説明文を短くして、ボタンが画面に収まるようにする（css/home.css の .is-recording）
-    takeWithoutVideoBtn.textContent = LABEL_NO_VIDEO_RECORDING;
     takeSubEl.textContent = `服用後、下のボタンを押して記録してください。${MAX_RECORD_SECONDS}秒たつと、自動で映像つきで記録されます。`;
     modal.classList.add('is-recording');
 

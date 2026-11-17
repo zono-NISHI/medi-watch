@@ -48,7 +48,7 @@ import jp.mediwatch.app.R;
  *
  * - 「カメラを起動する」… ロックを解除して、アプリのホームで撮影を始める
  *                         （記録しないままになった予定は、5 分後にもう一度鳴らす）
- * - 「映像なしで「飲んだ」を記録」… ロックを解除して、アプリのホームで映像なしの記録をする
+ * - 「飲みました（映像なしで記録する）」… ロックを解除して、アプリのホームで映像なしの記録をする
  *                         （お薬が 2 つ以上のときは、アプリの中の画面でお薬ごとに選んでもらう。onNoVideo を参照）
  * - 「あとで（5分後）」 … 音を止め、5 分後にもう一度鳴らす
  * 戻るボタンでは閉じない（いずれかのボタンを押してもらうため）。
@@ -84,7 +84,7 @@ public class AlarmActivity extends AppCompatActivity {
     private static final int COLOR_PAPER = Color.parseColor("#FBF7F0"); // 背景（紙の色）
     private static final int COLOR_INK = Color.parseColor("#33312E"); // お薬の名前
     private static final int COLOR_INK_SOFT = Color.parseColor("#6B6660"); // いまの時刻・用量・案内文・「あとで」の枠と文字
-    private static final int COLOR_INDIGO = Color.parseColor("#2C4A52"); // 「映像なしで「飲んだ」を記録」の枠と文字
+    private static final int COLOR_INDIGO = Color.parseColor("#2C4A52"); // 「飲みました（映像なしで記録する）」の枠と文字
     private static final int COLOR_INDIGO_DEEP = Color.parseColor("#1D3338"); // 予定の時刻・「お薬の時間です」
     private static final int COLOR_TERRACOTTA = Color.parseColor("#D97D54"); // 「カメラを起動する」・お薬の名前の枠
     private static final int COLOR_TERRACOTTA_DEEP = Color.parseColor("#B8623E"); // 「カメラを起動する」を押しているあいだ
@@ -230,7 +230,7 @@ public class AlarmActivity extends AppCompatActivity {
     }
 
     /**
-     * 「映像なしで「飲んだ」を記録」… ロックを解除して、アプリのホームで記録する。
+     * 「飲みました（映像なしで記録する）」… ロックを解除して、アプリのホームで記録する。
      * この画面はログインの情報を持たないので、記録はアプリの画面（public/js/pages/home.js）に任せる。
      * - お薬が 1 つ   … そのお薬を、映像なしで記録する
      * - お薬が 2 つ以上 … アプリを開き、アプリの中の「お薬の時間です」の画面で、飲んだお薬を 1 つずつ選んでもらう
@@ -331,9 +331,9 @@ public class AlarmActivity extends AppCompatActivity {
         cameraParams.topMargin = dp(GAP * 2);
         root.addView(cameraButton(), cameraParams);
 
-        // 「映像なしで「飲んだ」を記録」は、Web 版と同じく、藍色の枠だけのボタンにする（.btn-outline）
+        // 「飲みました（映像なしで記録する）」は、Web 版と同じく、藍色の枠だけのボタンにする（.btn-outline）
         Button noVideo = new Button(this);
-        noVideo.setText("映像なしで「飲んだ」を記録");
+        noVideo.setText("飲みました（映像なしで記録する）");
         noVideo.setAllCaps(false);
         noVideo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         noVideo.setTypeface(Typeface.DEFAULT_BOLD);

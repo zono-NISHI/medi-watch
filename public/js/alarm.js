@@ -407,7 +407,7 @@ const MedAlarm = (() => {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
           カメラを起動する
         </button>
-        <button type="button" class="btn btn-outline" data-alarm="no-video">映像なしで「飲んだ」を記録</button>
+        <button type="button" class="btn btn-outline" data-alarm="no-video">飲みました（映像なしで記録する）</button>
         <p class="text-sm alarm-note" id="alarm-multi-note" hidden>お薬は1つずつ記録します。飲んだお薬のボタンを押してください。</p>
         <ul class="alarm-items" id="alarm-items" hidden></ul>
         <p class="text-sm alarm-note" id="alarm-skip-note" hidden>スキップするときは、「カメラで記録する」を押すと出る画面から選べます。</p>
@@ -485,7 +485,7 @@ const MedAlarm = (() => {
               <li class="alarm-item">
                 <p class="alarm-item-name"><span class="alarm-item-time">${formatClock(item.at)}</span>${label(item)}</p>
                 <button type="button" class="btn btn-accent" data-act="camera" data-id="${id}">カメラで記録する</button>
-                <button type="button" class="btn btn-outline" data-act="no-video" data-id="${id}">映像なしで「飲んだ」を記録</button>
+                <button type="button" class="btn btn-outline" data-act="no-video" data-id="${id}">飲みました（映像なしで記録する）</button>
               </li>`;
           })
           .join('')

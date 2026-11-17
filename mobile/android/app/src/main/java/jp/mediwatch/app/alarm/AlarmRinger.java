@@ -60,11 +60,11 @@ public final class AlarmRinger {
     /** いま出している通知の番号 */
     private static volatile int notificationId = NOTIFICATION_ID;
     public static final String EXTRA_TAKE = "jp.mediwatch.app.TAKE_SCHEDULE_ID";
-    /** 全画面の「映像なしで「飲んだ」を記録」… 映像なしで記録する予定の id（お薬が 1 つのとき） */
+    /** 全画面の「飲みました（映像なしで記録する）」… 映像なしで記録する予定の id（お薬が 1 つのとき） */
     public static final String EXTRA_RECORD = "jp.mediwatch.app.RECORD_SCHEDULE_ID";
     /** EXTRA_RECORD を付けた時刻。古い頼みを、後からもう一度実行しないために付ける（MainActivity で確かめる） */
     public static final String EXTRA_RECORD_AT = "jp.mediwatch.app.RECORD_REQUESTED_AT";
-    /** 全画面の「映像なしで「飲んだ」を記録」… お薬が 2 つ以上のとき。アプリの中の画面で、お薬ごとに選んでもらう */
+    /** 全画面の「飲みました（映像なしで記録する）」… お薬が 2 つ以上のとき。アプリの中の画面で、お薬ごとに選んでもらう */
     public static final String EXTRA_CHOOSE = "jp.mediwatch.app.CHOOSE_IN_APP";
     static final String ACTION_SNOOZE = "jp.mediwatch.app.alarm.SNOOZE";
     /** 通知を横に払って消したとき */
@@ -332,7 +332,7 @@ public final class AlarmRinger {
     }
 
     /**
-     * 全画面の「映像なしで「飲んだ」を記録」を押したときに開く画面（お薬が 1 つのとき）。
+     * 全画面の「飲みました（映像なしで記録する）」を押したときに開く画面（お薬が 1 つのとき）。
      * アプリのホームが、そのお薬を映像なしで記録する。
      * 全画面のアラームはロック中にも出る画面で、ログインの情報を持たないので、記録そのものはアプリの画面に任せる。
      */
@@ -344,7 +344,7 @@ public final class AlarmRinger {
     }
 
     /**
-     * 全画面の「映像なしで「飲んだ」を記録」を押したときに開く画面（お薬が 2 つ以上のとき）。
+     * 全画面の「飲みました（映像なしで記録する）」を押したときに開く画面（お薬が 2 つ以上のとき）。
      * アプリのホームを開くだけにし、アプリの中の「お薬の時間です」の画面で、飲んだお薬を 1 つずつ選んでもらう
      * （まとめて記録すると、飲んでいないお薬まで「飲んだ」になってしまうため）。
      */
