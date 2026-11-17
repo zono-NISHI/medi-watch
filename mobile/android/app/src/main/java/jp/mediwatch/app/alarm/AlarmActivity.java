@@ -12,12 +12,16 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.TextClock;
 import android.widget.TextView;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
@@ -37,6 +41,10 @@ import java.util.List;
  *                         （記録しないままになった予定は、5 分後にもう一度鳴らす）
  * - 「あとで（5分後）」 … 音を止め、5 分後にもう一度鳴らす
  * 戻るボタンでは閉じない（どちらかのボタンを押してもらうため）。
+ *
+ * 画面の上から順に、「いまの時刻 08:20」（小さめ）→「08:00 の」「お薬の時間です」（大きく）→ お薬の名前 と並べる。
+ * 大きな時刻は「飲む予定の時刻」なので、「あとで」のあとなどは、いまの時刻とずれる。
+ * 取り違えないよう、予定の時刻は「08:00 の お薬の時間です」と文の中に入れ、いまの時刻は言葉を添えて別に出す。
  *
  * 表示中は、画面上部のステータスバー（時計・電池など）を隠し、画面いっぱいを使う。
  * 見えている・見えなくなったことは AlarmRinger に伝え、通知の出し方（画面上部に出すか）を切り替える。
@@ -125,7 +133,7 @@ public class AlarmActivity extends AppCompatActivity {
             return;
         }
         AlarmStore.Schedule first = store.findSchedule(items.get(0).id);
-        timeView.setText(first != null ? first.timeText() : "");
+        timeView.setText(first != null ? scheduledTimeText(first.timeText()) : "");
         medsView.setText(AlarmRinger.describe(store, items).replace("、", "\n"));
     }
 
@@ -214,6 +222,22 @@ public class AlarmActivity extends AppCompatActivity {
             return WindowInsetsCompat.CONSUMED;
         });
 
+        // いまの時刻（ステータスバーを隠していて端末の時計が見えないので、ここに出す）。
+        // TextClock は、分が変わるたびに自分で表示を更新する。端末の設定が 12 時間制でも、予定の時刻と同じ 24 時間制で出す
+        TextClock nowView = new TextClock(this);
+        nowView.setFormat12Hour("'いまの時刻' HH:mm");
+        nowView.setFormat24Hour("'いまの時刻' HH:mm");
+        nowView.setTextColor(Color.WHITE);
+        nowView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        nowView.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams nowParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        nowParams.bottomMargin = dp(8);
+        root.addView(nowView, nowParams);
+
+        // 飲む予定の時刻（「08:00 の」）。下の「お薬の時間です」と続けて読める
         timeView = text(56, true);
         root.addView(timeView);
 
@@ -251,6 +275,13 @@ public class AlarmActivity extends AppCompatActivity {
         noteParams.topMargin = dp(12);
         root.addView(note, noteParams);
         return root;
+    }
+
+    /** 「08:00 の」… 時刻は大きく、「の」は半分の大きさにする */
+    private CharSequence scheduledTimeText(String time) {
+        SpannableString s = new SpannableString(time + " の");
+        s.setSpan(new RelativeSizeSpan(0.5f), time.length(), s.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return s;
     }
 
     private TextView text(int sp, boolean bold) {

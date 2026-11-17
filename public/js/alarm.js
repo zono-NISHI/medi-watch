@@ -262,6 +262,7 @@ const MedAlarm = (() => {
   let dialog = null;
   let items = []; // いま知らせている予定 [{ schedule, log, at }]
   let shownKey = ''; // いま画面に描いているお薬（予定の id をつないだもの）
+  let nowTimer = null; // 画面の「いまの時刻」を進めるタイマー
   let audioCtx = null;
   let soundTimer = null;
   let voiceOnly = false; // ネイティブ版で、端末の読み上げだけで知らせているか（startSound で決める）
@@ -362,7 +363,8 @@ const MedAlarm = (() => {
         <div class="alarm-bell" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
         </div>
-        <p class="alarm-time" id="alarm-time"></p>
+        <p class="alarm-now">いまの時刻 <span id="alarm-now"></span></p>
+        <p class="alarm-time"><span id="alarm-time"></span><span class="alarm-time-of">の</span></p>
         <h2 id="alarm-title">お薬の時間です</h2>
         <ul class="alarm-meds" id="alarm-meds"></ul>
         <button type="button" class="alarm-camera-btn" data-alarm="camera">
@@ -408,6 +410,10 @@ const MedAlarm = (() => {
 
     if (!dialog.open) {
       dialog.showModal();
+      // いまの時刻を出し、表示しているあいだは進める（大きな時刻は「飲む予定の時刻」なので、取り違えないように分けて出す）
+      updateNow();
+      clearInterval(nowTimer);
+      nowTimer = setInterval(updateNow, 1000);
       startSound();
       requestWakeLock();
     }
@@ -450,7 +456,15 @@ const MedAlarm = (() => {
       : '';
   }
 
+  function updateNow() {
+    const text = formatClock(new Date());
+    const el = dialog?.querySelector('#alarm-now');
+    if (el && el.textContent !== text) el.textContent = text;
+  }
+
   function hide() {
+    clearInterval(nowTimer);
+    nowTimer = null;
     stopSound();
     releaseWakeLock();
     if (dialog?.open) dialog.close();

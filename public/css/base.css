@@ -499,6 +499,19 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
   .alarm-bell { animation: none; }
 }
 
+/* いまの時刻（小さめ）。下の大きな時刻は「飲む予定の時刻」 */
+.alarm-now {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--color-ink-soft);
+}
+/* 「08:00 の」の「の」 */
+.alarm-time-of {
+  margin-left: 0.2em;
+  font-size: 0.5em;
+}
+
 .alarm-time {
   margin: 0;
   font-family: var(--font-display);
