@@ -533,7 +533,7 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
 }
 /* お薬の名前は、白い地にテラコッタの枠で囲む。見出し（藍色）とお薬の名前（墨色）は、どちらも黒に近く、
    文字の色だけでは区切りが分からないため（文字は読みやすい濃い色のままにし、地と枠の色で分ける）。
-   お薬が 2 つ以上あるときのチェックの行（.alarm-check）と同じ色 */
+   お薬が 2 つ以上あるときの、お薬ごとの枠（.alarm-item）と同じ色 */
 .alarm-meds li {
   padding: var(--space-2) var(--space-3);
   border: 2px solid var(--color-terracotta);
@@ -581,57 +581,37 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
 .alarm-snooze-btn { flex-wrap: wrap; row-gap: 0; padding-inline: 0.8rem; }
 .alarm-snooze-btn span { font-size: var(--fs-sm); }
 
-/* お薬が 2 つ以上あるとき：お薬ごとにチェックを付けて並べ、チェックしたお薬をまとめて記録する。
-   行のどこを押してもチェックを付け外しできる。チェックを外したお薬は、地を紙色・枠を灰色にして、記録しないことが分かるようにする */
-.alarm-checks {
+/* お薬が 2 つ以上あるとき：お薬ごとに、記録のしかたを選ぶボタンを並べる（撮影もお薬ごと） */
+.alarm-items {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
-.alarm-check {
+.alarm-item {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-2);
-  min-height: 64px;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
   border: 2px solid var(--color-terracotta);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-white);
+}
+.alarm-item-name {
+  margin: 0;
   font-size: var(--fs-md);
   font-weight: 700;
-  text-align: left;
-  line-height: 1.4;
-  cursor: pointer;
 }
-.alarm-check.is-off {
-  border-color: var(--color-ink-soft);
-  background: var(--color-paper);
-  color: var(--color-ink-soft);
-}
-.alarm-check input {
-  flex: none;
-  width: 32px;
-  height: 32px;
-  margin: 0;
-  accent-color: var(--color-terracotta);
-}
-.alarm-check-name span {
+.alarm-item-name span {
   margin-left: 0.5em;
   font-size: var(--fs-sm);
   color: var(--color-ink-soft);
 }
 /* 前の時刻から残っているお薬に添える、その時刻 */
-.alarm-check-name .alarm-check-time {
+.alarm-item-name .alarm-item-time {
   margin: 0 0.5em 0 0;
   font-size: inherit;
   color: var(--color-indigo-deep);
 }
-/* 「カメラを起動する」の下の「チェックした2つをまとめて記録します」 */
-.alarm-camera-sub {
-  font-size: var(--fs-sm);
-  font-weight: 700;
-}
-.alarm-camera-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }

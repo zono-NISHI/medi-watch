@@ -44,8 +44,8 @@ import jp.mediwatch.app.MainActivity;
  *   このときは全画面を開かず、全画面を離れたときと同じく、音と画面上部の帯で知らせる。アプリに戻ったら止める（onAppShown）。
  * - 「あとで」にしたあいだは、通知欄に「08:25 に、もう一度お知らせします」と出し、どのお薬をいつ知らせるかが分かるようにする
  *   （updateSnoozeNotice）。
- * - お薬が 2 つ以上のとき、「カメラを起動する」は、鳴っているお薬すべてを 1 回の撮影でまとめて記録する画面を開く
- *   （記録するお薬は、アプリの撮影画面でチェックして選ぶ）。
+ * - 撮影・記録はお薬 1 つずつ。お薬が 2 つ以上のとき、通知のボタンは「お薬を選んで記録する」にして全画面のアラームを開き、
+ *   お薬ごとのボタンから選んでもらう（通知のボタンでは、どのお薬を撮影するのかを示せないため）。
  */
 public final class AlarmRinger {
 
@@ -70,12 +70,10 @@ public final class AlarmRinger {
     /** いま出している通知の番号 */
     private static volatile int notificationId = NOTIFICATION_ID;
     public static final String EXTRA_TAKE = "jp.mediwatch.app.TAKE_SCHEDULE_ID";
-    /** 全画面の「飲みました（映像なしで記録する）」… 映像なしで記録する予定の id（お薬が 1 つのとき） */
+    /** 全画面の「飲みました（映像なしで記録する）」… 映像なしで記録する予定の id */
     public static final String EXTRA_RECORD = "jp.mediwatch.app.RECORD_SCHEDULE_ID";
     /** EXTRA_RECORD を付けた時刻。古い頼みを、後からもう一度実行しないために付ける（MainActivity で確かめる） */
     public static final String EXTRA_RECORD_AT = "jp.mediwatch.app.RECORD_REQUESTED_AT";
-    /** 全画面の「飲みました（映像なしで記録する）」… お薬が 2 つ以上のとき。アプリの中の画面で、お薬ごとに選んでもらう */
-    public static final String EXTRA_CHOOSE = "jp.mediwatch.app.CHOOSE_IN_APP";
     static final String ACTION_SNOOZE = "jp.mediwatch.app.alarm.SNOOZE";
     /** 通知を横に払って消したとき */
     static final String ACTION_DISMISSED = "jp.mediwatch.app.alarm.DISMISSED";
@@ -477,20 +475,10 @@ public final class AlarmRinger {
         }
     }
 
-    /** いま鳴っている予定の id（「カメラを起動する」で、まとめて記録するお薬） */
-    static List<String> ringingIds(Context context) {
-        List<String> ids = new ArrayList<>();
-        for (AlarmStore.Item item : new AlarmStore(context).ringing()) ids.add(item.id);
-        return ids;
-    }
-
-    /**
-     * 「カメラを起動する」を押したときに開く画面（アプリのホームで撮影を始める）。
-     * 鳴っているお薬すべてを渡し、1 回の撮影でまとめて記録する（どのお薬を記録するかは、撮影画面のチェックで選ぶ）
-     */
-    static Intent takeIntent(Context context, List<String> scheduleIds) {
+    /** 「カメラを起動する」「カメラで記録する」を押したときに開く画面（アプリのホームで、そのお薬の撮影を始める） */
+    static Intent takeIntent(Context context, String scheduleId) {
         return new Intent(context, MainActivity.class)
-            .putExtra(EXTRA_TAKE, android.text.TextUtils.join(",", scheduleIds))
+            .putExtra(EXTRA_TAKE, scheduleId)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }
 
@@ -529,7 +517,7 @@ public final class AlarmRinger {
     }
 
     /**
-     * 全画面の「飲みました（映像なしで記録する）」を押したときに開く画面（お薬が 1 つのとき）。
+     * 全画面の「飲みました（映像なしで記録する）」を押したときに開く画面。
      * アプリのホームが、そのお薬を映像なしで記録する。
      * 全画面のアラームはロック中にも出る画面で、ログインの情報を持たないので、記録そのものはアプリの画面に任せる。
      */
@@ -537,17 +525,6 @@ public final class AlarmRinger {
         return new Intent(context, MainActivity.class)
             .putExtra(EXTRA_RECORD, scheduleId)
             .putExtra(EXTRA_RECORD_AT, System.currentTimeMillis())
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-    }
-
-    /**
-     * 全画面の「飲みました（映像なしで記録する）」を押したときに開く画面（お薬が 2 つ以上のとき）。
-     * アプリのホームを開くだけにし、アプリの中の「お薬の時間です」の画面で、飲んだお薬を 1 つずつ選んでもらう
-     * （まとめて記録すると、飲んでいないお薬まで「飲んだ」になってしまうため）。
-     */
-    static Intent chooseIntent(Context context) {
-        return new Intent(context, MainActivity.class)
-            .putExtra(EXTRA_CHOOSE, true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }
 
@@ -640,10 +617,12 @@ public final class AlarmRinger {
             new Intent(context, AlarmActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             flags
         );
-        List<String> ids = new ArrayList<>();
-        for (AlarmStore.Item item : items) ids.add(item.id);
-        // 鳴っているお薬すべてを、1 回の撮影でまとめて記録する画面を開く
-        PendingIntent camera = PendingIntent.getActivity(context, 11, takeIntent(context, ids), flags);
+        // お薬が 1 つ … そのお薬の撮影を始める
+        // お薬が 2 つ以上 … 全画面のアラームを開き、お薬ごとのボタンから選んでもらう（撮影・記録はお薬 1 つずつ）
+        boolean multi = items.size() > 1;
+        PendingIntent camera = multi || items.isEmpty()
+            ? fullScreen
+            : PendingIntent.getActivity(context, 11, takeIntent(context, items.get(0).id), flags);
         PendingIntent snooze = PendingIntent.getBroadcast(
             context,
             12,
@@ -678,7 +657,7 @@ public final class AlarmRinger {
             // 通知を横に払って消したときは、音を止めて 5 分後にもう一度鳴らす（記録待ち。hold を参照）。
             // そのあいだにアプリを開けば、アプリの画面のアラームが知らせる
             .setDeleteIntent(dismissed)
-            .addAction(0, "カメラを起動する", camera)
+            .addAction(0, multi ? "お薬を選んで記録する" : "カメラを起動する", camera)
             .addAction(0, snoozeLabel(items.size(), false), snooze);
         // 全画面インテントがあると、操作中は画面上部に通知が出るため、全画面が見えているあいだは付けない
         if (!quiet) builder.setFullScreenIntent(fullScreen, true);

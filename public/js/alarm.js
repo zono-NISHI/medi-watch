@@ -22,9 +22,11 @@
 //  - この画面で知らせている（撮影画面で記録しようとしている）お薬は、端末にも伝えておく（NativeAlarm.setAppAlarm）。
 //    記録しないままアプリを離れたら（ホームに戻る・ほかのアプリを開く・画面を消す）、数秒後に端末のアラームが
 //    音と画面上部の帯で知らせ続け、アプリに戻ると、またこの画面が声で知らせる（MainActivity・AlarmRinger.onAppHidden）
-// お薬が 2 つ以上あるときは、お薬ごとにチェックを付けて並べ、チェックしたお薬を 1 回の撮影（または映像なし）でまとめて記録する。
-// 同じ時刻のお薬は、実際には一度に飲むことが多いため。飲んでいないお薬まで「飲んだ」にならないよう、
-// どのお薬を記録するかはチェックで見せ、前の時刻から残っているお薬は、最初はチェックを外しておく。
+// お薬が 2 つ以上あるときは、お薬ごとに「カメラで記録する」「飲みました（映像なしで記録する）」のボタンを並べ、
+// 1 つずつ記録してもらう（撮影もお薬ごと。1 つ記録すると、残りのお薬がすぐに続けて出る）。
+// 一時期は、チェックで選んだお薬を 1 回の撮影でまとめて記録していたが、次の理由でお薬ごとに戻した。
+// ・録画は30秒で終わるので、その中で何種類ものお薬を飲むのは高齢の利用者には慌ただしい
+// ・映像と家族への通知がお薬ごとに分かれていないと、見守る家族が、どのお薬を飲んだのか・どのお薬の映像なのかを見分けられない
 // ============================================================
 
 // ------------------------------------------------------------
@@ -317,7 +319,6 @@ const MedAlarm = (() => {
   let memSnoozes = {}; // localStorage を使えないときの「あとで」
   let dialog = null;
   let items = []; // いま知らせている予定 [{ schedule, log, at }]
-  const checked = new Map(); // お薬が 2 つ以上のときの、お薬ごとのチェック（予定の id → 記録するか）
   let shownKey = ''; // いま画面に描いているお薬（予定の id をつないだもの）
   let nowTimer = null; // 画面の「いまの時刻」を進めるタイマー
   let audioCtx = null;
@@ -331,8 +332,8 @@ const MedAlarm = (() => {
   let wakeLock = null;
 
   // options:
-  //   onStartCamera(selected, all) … 「カメラを起動する」を押したとき（省略時はホームへ移動して撮影を始める）。
-  //                                   selected: 記録するお薬（チェックしたもの）、all: 知らせていたお薬すべて
+  //   onStartCamera(item) … 「カメラを起動する」「カメラで記録する」を押したとき（省略時はホームへ移動して撮影を始める）。
+  //                         item: 撮影して記録するお薬 { schedule, log, at }
   //   onRecorded()        … 映像なしで記録したあと（ホームの一覧を更新するため）
   //   isBusy()            … true のあいだは出さない（ホームで撮影中など）
   function start(opts = {}) {
@@ -447,15 +448,14 @@ const MedAlarm = (() => {
         <p class="alarm-time"><span id="alarm-time"></span><span class="alarm-time-of">に飲む</span></p>
         <h2 id="alarm-title">お薬の時間です</h2>
         <ul class="alarm-meds" id="alarm-meds"></ul>
-        <ul class="alarm-checks" id="alarm-checks" hidden></ul>
-        <p class="text-sm alarm-note" id="alarm-multi-note" hidden>チェックの入っているお薬を記録します。飲まないお薬は、チェックを外してください。</p>
         <button type="button" class="alarm-camera-btn" data-alarm="camera">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
           カメラを起動する
-          <span class="alarm-camera-sub" id="alarm-camera-sub" hidden></span>
         </button>
         <button type="button" class="btn btn-outline" data-alarm="no-video">飲みました（映像なしで記録する）</button>
-        <p class="text-sm alarm-note">飲まないときは、「カメラを起動する」の先で選べます。</p>
+        <p class="text-sm alarm-note" id="alarm-multi-note" hidden>お薬は1つずつ記録します。飲んだお薬のボタンを押してください。</p>
+        <ul class="alarm-items" id="alarm-items" hidden></ul>
+        <p class="text-sm alarm-note" id="alarm-skip-note"></p>
         <button type="button" class="btn btn-ghost alarm-snooze-btn" data-alarm="snooze">あとで<span id="alarm-snooze-sub"></span></button>
         <p class="text-sm alarm-note" id="alarm-sound-hint" hidden>音が鳴らないときは、画面のどこかに一度触れてください。</p>
       </div>`;
@@ -464,13 +464,14 @@ const MedAlarm = (() => {
     dialog.querySelector('[data-alarm="camera"]').addEventListener('click', onCamera);
     dialog.querySelector('[data-alarm="no-video"]').addEventListener('click', onRecordWithoutVideo);
     dialog.querySelector('[data-alarm="snooze"]').addEventListener('click', onSnooze);
-    // お薬が 2 つ以上のときの、お薬ごとのチェック
-    dialog.querySelector('#alarm-checks').addEventListener('change', (e) => {
-      const box = e.target.closest('input[type="checkbox"][data-id]');
-      if (!box) return;
-      checked.set(box.dataset.id, box.checked);
-      box.closest('.alarm-check')?.classList.toggle('is-off', !box.checked);
-      updateSelection();
+    // お薬が 2 つ以上のときの、お薬ごとのボタン
+    dialog.querySelector('#alarm-items').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const item = items.find(({ schedule }) => schedule.id === btn.dataset.id);
+      if (!item) return;
+      if (btn.dataset.act === 'camera') startCamera(item);
+      else recordWithoutVideo(item, btn);
     });
     document.body.appendChild(dialog);
   }
@@ -479,8 +480,7 @@ const MedAlarm = (() => {
     if (!dialog) buildDialog();
     items = due;
 
-    // 知らせるお薬が変わったときだけ描き直す（10秒ごとの判定のたびに描き直すと、押している最中のボタンや、
-    // 付け外ししたチェックが作り直されてしまう）
+    // 知らせるお薬が変わったときだけ描き直す（10秒ごとの判定のたびに描き直すと、押している最中のボタンが作り直されてしまう）
     const key = due.map(({ schedule }) => schedule.id).join(',');
     if (key !== shownKey) {
       shownKey = key;
@@ -500,78 +500,55 @@ const MedAlarm = (() => {
     }
   }
 
-  // いちばん新しい服薬時刻（大きく出す「08:00 に飲む」と、最初からチェックを付けるお薬に使う）
+  // いちばん新しい服薬時刻（大きく出す「08:00 に飲む」の時刻）
   function latestAt(due) {
     return new Date(Math.max(...due.map(({ at }) => at.getTime())));
   }
 
   // お薬が 1 つのとき … お薬の名前と、大きな「カメラを起動する」「映像なしで記録」のボタン
-  // お薬が 2 つ以上のとき … お薬ごとにチェックを付けて並べ、同じボタンで、チェックしたお薬をまとめて記録する。
-  //   いちばん新しい時刻のお薬（いま鳴っている時刻のお薬）は最初からチェックを付け、前の時刻から残っているお薬は外しておく
-  //   （残っていたお薬まで、まとめて「飲んだ」にならないように）。前の時刻のお薬には、その時刻も添える
+  // お薬が 2 つ以上のとき … お薬ごとに「カメラで記録する」「飲みました（映像なしで記録する）」のボタンを並べ、1 つずつ記録してもらう
+  //   （撮影もお薬ごと。録画は30秒なので、1 回で何種類も飲むのは慌ただしく、映像も、見守る家族がお薬ごとに見分けられるようにする）。
+  //   前の時刻から残っているお薬には、その時刻を添える
   function render(due) {
     const multi = due.length > 1;
     const latest = latestAt(due);
-    const amountHtml = (med) => {
+    const label = ({ schedule, at }) => {
+      const med = schedule.medications || {};
       const amount = `${med.dosage || ''}${med.unit || ''}`;
-      return amount ? `<span>${escapeText(amount)}</span>` : '';
+      const time = multi && at.getTime() !== latest.getTime() ? `<span class="alarm-item-time">${formatClock(at)}</span>` : '';
+      return `${time}${escapeText(med.name || 'お薬')}${amount ? `<span>${escapeText(amount)}</span>` : ''}`;
     };
 
     dialog.querySelector('#alarm-time').textContent = formatClock(latest);
     const medsEl = dialog.querySelector('#alarm-meds');
     medsEl.hidden = multi;
-    medsEl.innerHTML = multi
-      ? ''
-      : `<li>${escapeText(due[0].schedule.medications?.name || 'お薬')}${amountHtml(due[0].schedule.medications || {})}</li>`;
+    medsEl.innerHTML = multi ? '' : `<li>${label(due[0])}</li>`;
+    dialog.querySelector('[data-alarm="camera"]').hidden = multi;
+    dialog.querySelector('[data-alarm="no-video"]').hidden = multi;
     dialog.querySelector('#alarm-multi-note').hidden = !multi;
+    // スキップのボタンは置かない（押し間違えると、すぐ家族に知らせが行くため）。どこで選べるかだけを添える
+    dialog.querySelector('#alarm-skip-note').textContent = multi
+      ? '飲まないときは、「カメラで記録する」の先で選べます。'
+      : '飲まないときは、「カメラを起動する」の先で選べます。';
     dialog.querySelector('#alarm-snooze-sub').textContent = multi
       ? `（${due.length}つとも${SNOOZE_MIN}分後にもう一度お知らせ）`
       : `（${SNOOZE_MIN}分後にもう一度お知らせ）`;
 
-    // チェックは、知らせているあいだは付け外しした状態を保つ（新しく加わったお薬だけ、最初の状態にする）
-    const ids = new Set(due.map(({ schedule }) => schedule.id));
-    [...checked.keys()].forEach((id) => { if (!ids.has(id)) checked.delete(id); });
-    due.forEach(({ schedule, at }) => {
-      if (!checked.has(schedule.id)) checked.set(schedule.id, at.getTime() === latest.getTime());
-    });
-
-    const checksEl = dialog.querySelector('#alarm-checks');
-    checksEl.hidden = !multi;
-    checksEl.innerHTML = multi
+    const itemsEl = dialog.querySelector('#alarm-items');
+    itemsEl.hidden = !multi;
+    itemsEl.innerHTML = multi
       ? due
-          .map(({ schedule, at }) => {
-            const med = schedule.medications || {};
-            const on = checked.get(schedule.id);
-            const time = at.getTime() === latest.getTime() ? '' : `<span class="alarm-check-time">${formatClock(at)}</span>`;
+          .map((item) => {
+            const id = escapeText(item.schedule.id);
             return `
-              <li>
-                <label class="alarm-check ${on ? '' : 'is-off'}">
-                  <input type="checkbox" data-id="${escapeText(schedule.id)}" ${on ? 'checked' : ''} />
-                  <span class="alarm-check-name">${time}${escapeText(med.name || 'お薬')}${amountHtml(med)}</span>
-                </label>
+              <li class="alarm-item">
+                <p class="alarm-item-name">${label(item)}</p>
+                <button type="button" class="btn btn-accent" data-act="camera" data-id="${id}">カメラで記録する</button>
+                <button type="button" class="btn btn-outline" data-act="no-video" data-id="${id}">飲みました（映像なしで記録する）</button>
               </li>`;
           })
           .join('')
       : '';
-    updateSelection();
-  }
-
-  // 記録するお薬（お薬が 1 つならそのお薬、2 つ以上ならチェックしたお薬）
-  function selectedItems() {
-    if (items.length <= 1) return items.slice();
-    return items.filter(({ schedule }) => checked.get(schedule.id));
-  }
-
-  // チェックの数に合わせて、ボタンの説明と押せるかどうかを変える
-  function updateSelection() {
-    if (!dialog) return;
-    const multi = items.length > 1;
-    const count = selectedItems().length;
-    const sub = dialog.querySelector('#alarm-camera-sub');
-    sub.hidden = !multi;
-    sub.textContent = count > 0 ? `チェックした${count}つをまとめて記録します` : '記録するお薬にチェックを入れてください';
-    dialog.querySelector('[data-alarm="camera"]').disabled = count === 0;
-    dialog.querySelector('[data-alarm="no-video"]').disabled = count === 0;
   }
 
   function updateNow() {
@@ -591,54 +568,48 @@ const MedAlarm = (() => {
   }
 
   // ---- ボタン ----
+  // 大きな「カメラを起動する」「映像なしで記録」は、お薬が 1 つのときだけ出す（2 つ以上のときは、お薬ごとのボタン）
   function onCamera() {
-    startCamera(selectedItems());
+    startCamera(items[0]);
   }
 
-  // selected: 記録するお薬（チェックしたもの）。撮影画面では、知らせていたお薬すべてを並べ、selected にチェックを付けて出す
-  function startCamera(selected) {
-    if (!selected || selected.length === 0) return;
-    const all = items.slice();
+  // item: 撮影して記録するお薬（1 つ）
+  function startCamera(item) {
+    if (!item) return;
     holdUntil = Date.now() + 15 * 1000; // 撮影画面が開くまでのあいだ（開いたら holdDue で解除する）
     // ネイティブ版：端末のアラームの音を止め、知らせていた予定を記録待ちにする
     //（記録しないままアプリを離れても、端末のアラームが鳴る）
-    NativeAlarm.snooze(all, true);
+    NativeAlarm.snooze(items, true);
     hide();
     if (options.onStartCamera) {
-      options.onStartCamera(selected, all);
+      options.onStartCamera(item);
     } else {
-      const ids = (list) => encodeURIComponent(list.map(({ schedule }) => schedule.id).join(','));
-      location.href = `home.html?take=${ids(all)}&pick=${ids(selected)}`;
+      location.href = `home.html?take=${encodeURIComponent(item.schedule.id)}`;
     }
   }
 
   function onRecordWithoutVideo(e) {
-    recordWithoutVideo(selectedItems(), e.currentTarget);
+    recordWithoutVideo(items[0], e.currentTarget);
   }
 
-  // 選んだお薬を、映像なしで「飲んだ」とまとめて記録する（家族への通知は 1 通）。
-  // ほかに知らせるお薬（チェックを外したもの）が残っていれば、画面はそのまま続ける
-  async function recordWithoutVideo(targets, btn) {
-    if (targets.length === 0) return;
-    const names = targets.map(({ schedule }) => `「${schedule.medications?.name || 'お薬'}」`).join('');
-    const message = items.length > 1 ? `${names}の服薬を記録しました。` : '服薬を記録しました。';
+  // そのお薬を、映像なしで「飲んだ」と記録する（家族への通知も、このお薬について 1 通）。
+  // ほかに知らせるお薬が残っていれば、すぐに続けて知らせる
+  async function recordWithoutVideo(item, btn) {
+    if (!item) return;
+    const { schedule, log } = item;
+    const message = items.length > 1 ? `「${schedule.medications?.name || 'お薬'}」の服薬を記録しました。` : '服薬を記録しました。';
     btn.disabled = true;
     try {
-      const logIds = await Promise.all(
-        targets.map(({ schedule, log }) =>
-          log?.id ||
-          Api.createLog({ schedule_id: schedule.id, date: localDateStr(new Date()) }).then(({ log: created }) => created.id)
-        )
-      );
-      await Api.takeLogs(logIds);
-      markRecorded(targets.map(({ schedule }) => schedule.id)); // 記録したお薬を外す（残りがあれば続けて知らせ、無ければ閉じる）
+      const logId =
+        log?.id || (await Api.createLog({ schedule_id: schedule.id, date: localDateStr(new Date()) })).log.id;
+      await Api.takeLog(logId, {});
+      markRecorded([schedule.id]); // 記録したお薬を外す（残りがあれば続けて知らせ、無ければ閉じる）
       showToast(message, 'success');
       options.onRecorded?.();
     } catch (err) {
       handleApiError(err, '記録に失敗しました。');
     } finally {
       btn.disabled = false;
-      updateSelection();
     }
   }
 

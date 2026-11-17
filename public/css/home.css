@@ -31,6 +31,36 @@
 .schedule-card.is-taken { opacity: 0.7; }
 .schedule-card.is-overdue { border-color: var(--color-clay); background: #fdf4f2; }
 
+/* 家族への通知をタップして開いたときの、そのお知らせのお薬のカード。
+   太いテラコッタの枠と「🔔 お知らせのお薬」の札で示し、開いた直後に 2 回ぴょこんと跳ねて目を引く
+   （どのお薬の通知なのかを、一覧の中で探さなくても分かるように） */
+.schedule-card.is-notified {
+  border: 3px solid var(--color-terracotta);
+  box-shadow: 0 0 0 4px rgba(217, 125, 84, 0.25), var(--shadow-soft);
+  opacity: 1; /* 服薬済みのカード（薄く表示）でも、はっきり見せる */
+}
+.notified-tag {
+  align-self: flex-start;
+  padding: 0.15em 0.7em;
+  border-radius: 999px;
+  background: var(--color-terracotta);
+  color: var(--color-white);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.schedule-card.is-bouncing { animation: notified-bounce 0.9s ease-out 2; }
+@keyframes notified-bounce {
+  0%, 100% { transform: translateY(0); }
+  25% { transform: translateY(-14px); }
+  45% { transform: translateY(0); }
+  60% { transform: translateY(-6px); }
+  75% { transform: translateY(0); }
+}
+/* 動きを減らす設定の端末では跳ねさせず、枠と札だけで示す */
+@media (prefers-reduced-motion: reduce) {
+  .schedule-card.is-bouncing { animation: none; }
+}
+
 /* 1段目: 時刻（左）と、いまの状態（右） */
 .schedule-head {
   display: flex;
@@ -106,52 +136,6 @@
   align-items: center;
   justify-content: center;
 }
-
-/* お薬が 2 つ以上のときの「記録するお薬」。チェックしたお薬を、1 回の撮影でまとめて記録する。
-   行のどこを押してもチェックを付け外しでき、外したお薬は地と枠を灰色にして、記録しないことが分かるようにする
-   （アラームの画面のチェックの行 .alarm-check と同じ見た目） */
-.take-meds { margin: 0 0 var(--space-3); }
-.take-meds-title { margin: 0 0 var(--space-1); font-weight: 700; }
-.take-meds-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.take-med {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 56px;
-  padding: var(--space-1) var(--space-2);
-  border: 2px solid var(--color-terracotta);
-  border-radius: var(--radius-md);
-  background: var(--color-white);
-  font-weight: 700;
-  line-height: 1.4;
-  cursor: pointer;
-}
-.take-med.is-off {
-  border-color: var(--color-ink-soft);
-  background: var(--color-paper);
-  color: var(--color-ink-soft);
-}
-.take-med input {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  margin: 0;
-  accent-color: var(--color-terracotta);
-}
-.take-med-amount {
-  margin-left: 0.5em;
-  font-size: var(--fs-sm);
-  color: var(--color-ink-soft);
-}
-.take-med-time { margin-right: 0.5em; color: var(--color-indigo-deep); }
-.take-meds-hint { margin: var(--space-1) 0 0; color: var(--color-clay-deep); }
 
 /* 録画中はボタンが3つ並ぶので、映像の枠を低くして、ボタンまで画面に収まるようにする */
 .take-modal.is-recording .camera-frame {

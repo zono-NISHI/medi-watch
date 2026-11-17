@@ -12,6 +12,8 @@ const { initializeApp, cert } = require('firebase-admin/app');
 const { getMessaging } = require('firebase-admin/messaging');
 const { supabaseAdmin } = require('../supabase/supabase');
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000; // 通知の本文に、予定の時刻を日本時間で入れるため
+
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
@@ -133,19 +135,23 @@ async function sendToSubscription(sub, payload, { ttlSeconds = 24 * 60 * 60 } = 
 //   先延ばしにしている場合や、飲んだのに記録し忘れている場合もあり、サーバーにはその区別がつかないため。
 // ・スキップ（medication_skipped）は本人が選んだことなので、飲み忘れとは分け、
 //   アプリ内の表示（ボタン「今回はスキップする」、記録の「スキップ」）と同じ言葉で伝える。
-function buildMessage(type, patientName) {
+// 通知はお薬 1 つにつき 1 通にし、どのお薬のお知らせかを本文に入れる（med … 「08:00の「ロキソニン」」）。
+// 同じ時刻のお薬を 1 通にまとめると、どのお薬を飲んだのか・どのお薬の映像を見られるのかが分からなかったため。
+// 本文はお薬の名前から始める（誰のお知らせかは見出しにあり、通知欄で折りたたまれていても 1 行目で見分けられるように）。
+function buildMessage(type, patientName, med) {
   const who = patientName ? `${patientName}さん` : 'ご家族';
+  const what = med || 'お薬';
   switch (type) {
     case 'medication_reminder':
       return { title: 'お薬の時間です', body: 'お薬を服用する時間になりました。' };
     case 'medication_taken':
-      return { title: `服薬完了：${who}`, body: `${who}がお薬を服用したことが記録されました。` };
+      return { title: `服薬完了：${who}`, body: `${what}を服用したことが記録されました。` };
     case 'medication_missed':
-      return { title: `まだお薬の記録がありません：${who}`, body: `予定の時間を過ぎましたが、${who}のお薬の記録がありません。` };
+      return { title: `まだお薬の記録がありません：${who}`, body: `${what}は、予定の時間を過ぎましたが、まだ記録がありません。` };
     case 'medication_skipped':
-      return { title: `スキップ：${who}`, body: `${who}が、今回はお薬をスキップしました。` };
+      return { title: `スキップ：${who}`, body: `${what}を、今回はスキップしました。` };
     case 'video_recorded':
-      return { title: `服薬映像：${who}`, body: `${who}の服薬の様子を映像で確認できます。` };
+      return { title: `服薬映像：${who}`, body: `${what}を服用する様子を、映像で確認できます。` };
     default:
       return { title: '通知', body: 'お薬手帳からのお知らせです。' };
   }
@@ -162,6 +168,28 @@ async function getProfileName(userId) {
     return null;
   }
   return data?.name || null;
+}
+
+// 記録（medication_logs）のお薬を、通知の本文に入れる言い方にする（例: 08:00の「ロキソニン」）。
+// 取得できないときは null（本文は「お薬」になる）
+async function getLogMedLabel(logId) {
+  if (!logId) return null;
+  const { data, error } = await supabaseAdmin
+    .from('medication_logs')
+    .select('scheduled_at, medication_schedules(medications(name))')
+    .eq('id', logId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[notificationService] お薬の名前の取得に失敗:', error.message);
+    return null;
+  }
+  if (!data) return null;
+  const name = data.medication_schedules?.medications?.name || 'お薬';
+  // 予定の時刻は日本時間で出す（サーバーは UTC で動くため）
+  const time = data.scheduled_at
+    ? new Date(new Date(data.scheduled_at).getTime() + JST_OFFSET_MS).toISOString().slice(11, 16)
+    : '';
+  return `${time ? `${time}の` : ''}「${name}」`;
 }
 
 // 指定したユーザーの全端末へプッシュ通知を送り、送れた台数を返す
@@ -210,7 +238,8 @@ async function notifyWatchRemoved({ removedUserId, patientId }) {
   });
 }
 
-// 患者本人のケアグループに所属する家族・介護者へ通知を送信する
+// 患者本人のケアグループに所属する家族・介護者へ通知を送信する（記録 1 つ＝お薬 1 つにつき 1 通）。
+// logId は通知に入れて送り、タップしたときに、ホームでそのお薬のカードを示すのに使う（push.js・sw.js）
 async function notifyCareGroup({ patientId, logId, type }) {
   // 患者のケアグループを取得
   const { data: groups, error: groupErr } = await supabaseAdmin
@@ -244,7 +273,8 @@ async function notifyCareGroup({ patientId, logId, type }) {
   const recipients = targetUserIds.filter((id) => id !== patientId);
   if (recipients.length === 0) return { sent: 0 };
 
-  const message = buildMessage(type, await getProfileName(patientId));
+  const [patientName, medLabel] = await Promise.all([getProfileName(patientId), getLogMedLabel(logId)]);
+  const message = buildMessage(type, patientName, medLabel);
 
   const sentCount = await sendToUsers(recipients, {
     title: message.title,
