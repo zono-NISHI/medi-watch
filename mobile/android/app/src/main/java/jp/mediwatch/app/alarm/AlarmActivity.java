@@ -47,10 +47,14 @@ import jp.mediwatch.app.R;
  * ロック中でも表示し（showWhenLocked）、画面が消えていれば点ける（turnScreenOn）。
  *
  * - 「カメラを起動する」… ロックを解除して、アプリのホームで撮影を始める
- *                         （記録しないままになった予定は、5 分後にもう一度鳴らす）
+ *                         （お薬が 2 つ以上のときは、鳴っているお薬すべてを 1 回の撮影でまとめて記録する。
+ *                          どのお薬を記録するかは、撮影画面のチェックで選ぶ。ボタンにも「2つのお薬をまとめて記録します」と添える。
+ *                          以前は、いちばん上のお薬だけを撮影していた。記録しないままになった予定は、5 分後にもう一度鳴らす）
  * - 「飲みました（映像なしで記録する）」… ロックを解除して、アプリのホームで映像なしの記録をする
- *                         （お薬が 2 つ以上のときは、アプリの中の画面でお薬ごとに選んでもらう。onNoVideo を参照）
- * - 「あとで（5分後）」 … 音を止め、5 分後にもう一度鳴らす
+ *                         （お薬が 2 つ以上のときは、アプリの中の画面で、記録するお薬にチェックを付けてもらう。onNoVideo を参照）
+ * - 「あとで（5分後）」 … 音を止め、5 分後にもう一度鳴らす。お薬が 2 つ以上のときは「あとで（2つとも…）」と、
+ *                         どれも「あとで」になることをボタンに書き、押したあとは「08:25 に、もう一度お知らせします」と
+ *                         お薬の名前を数秒出してから閉じる（どのお薬がいつ知らされるのかを確かめられるように）
  * 戻るボタンでは閉じない（いずれかのボタンを押してもらうため）。
  *
  * 見た目は、アプリの中のアラーム（Web 版。public/js/alarm.js）と同じにする。
@@ -102,14 +106,25 @@ public class AlarmActivity extends AppCompatActivity {
         return visible;
     }
 
+    /** 「あとで」を押したあとの確認（「08:25 に、もう一度お知らせします」）を出しておく時間 */
+    private static final long SNOOZE_CONFIRM_MS = 4000;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView timeView;
     private TextView medsView;
+    private TextView cameraSubView;
+    private Button snoozeButton;
+    /** 「あとで」の確認を出しているあいだ true（このあいだは、アラームが止まっても閉じない） */
+    private boolean confirming = false;
 
-    /** 記録が済んだときなどに、開いているアラーム画面を閉じる */
+    /** 記録が済んだときなどに、開いているアラーム画面を閉じる（「あとで」の確認を出しているあいだは、確認のあとで閉じる） */
     static void closeIfOpen() {
         AlarmActivity activity = current.get();
-        if (activity != null) activity.runOnUiThread(activity::finish);
+        if (activity != null) {
+            activity.runOnUiThread(() -> {
+                if (!activity.confirming) activity.finish();
+            });
+        }
     }
 
     @Override
@@ -165,15 +180,22 @@ public class AlarmActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (confirming) return; // 「あとで」の確認を出している（まもなく閉じる）
         AlarmStore store = new AlarmStore(this);
         List<AlarmStore.Item> items = store.ringing();
         if (items.isEmpty()) {
             finish(); // 記録が済んだ・「あとで」にした
             return;
         }
-        AlarmStore.Schedule first = store.findSchedule(items.get(0).id);
-        timeView.setText(first != null ? scheduledTimeText(first.timeText()) : "");
+        // 大きな時刻は、いちばん新しい服薬時刻（前の時刻から残っているお薬には、一覧の中でその時刻を添える）
+        AlarmStore.Schedule latest = AlarmRinger.latestSchedule(store, items);
+        timeView.setText(latest != null ? scheduledTimeText(latest.timeText()) : "");
         medsView.setText(medsText(store, items));
+        // お薬が 2 つ以上のときは、カメラでまとめて記録すること・「あとで」がどれにも効くことをボタンに書く
+        boolean multi = items.size() > 1;
+        cameraSubView.setVisibility(multi ? View.VISIBLE : View.GONE);
+        cameraSubView.setText(items.size() + "つのお薬をまとめて記録します");
+        snoozeButton.setText(AlarmRinger.snoozeLabel(items.size(), true));
     }
 
     @Override
@@ -220,20 +242,21 @@ public class AlarmActivity extends AppCompatActivity {
         controller.hide(WindowInsetsCompat.Type.statusBars());
     }
 
+    /** 鳴っているお薬すべてを、アプリの撮影画面で 1 回の撮影でまとめて記録する（記録するお薬は、撮影画面のチェックで選ぶ） */
     private void onCamera() {
-        String id = AlarmRinger.firstRingingId(this);
-        if (id == null) {
+        List<String> ids = AlarmRinger.ringingIds(this);
+        if (ids.isEmpty()) {
             finish();
             return;
         }
-        afterUnlock(() -> openApp(AlarmRinger.takeIntent(this, id)));
+        afterUnlock(() -> openApp(AlarmRinger.takeIntent(this, ids)));
     }
 
     /**
      * 「飲みました（映像なしで記録する）」… ロックを解除して、アプリのホームで記録する。
      * この画面はログインの情報を持たないので、記録はアプリの画面（public/js/pages/home.js）に任せる。
      * - お薬が 1 つ   … そのお薬を、映像なしで記録する
-     * - お薬が 2 つ以上 … アプリを開き、アプリの中の「お薬の時間です」の画面で、飲んだお薬を 1 つずつ選んでもらう
+     * - お薬が 2 つ以上 … アプリを開き、アプリの中の「お薬の時間です」の画面で、飲んだお薬にチェックを付けて記録してもらう
      */
     private void onNoVideo() {
         List<AlarmStore.Item> ringing = new AlarmStore(this).ringing();
@@ -273,9 +296,72 @@ public class AlarmActivity extends AppCompatActivity {
         finish();
     }
 
+    /**
+     * 「あとで」… 画面に出ているお薬すべてを 5 分後にもう一度鳴らす。
+     * すぐには閉じず、「08:25 に、もう一度お知らせします」とお薬の名前を数秒出してから閉じる
+     * （以前はすぐ閉じたので、どのお薬が「あとで」になったのか分からなかった）
+     */
     private void onSnooze() {
-        AlarmRinger.snooze(this);
-        finish();
+        AlarmStore store = new AlarmStore(this);
+        CharSequence meds = medsText(store, store.ringing());
+        confirming = true; // アラームを止めたときに、この画面を閉じないようにする（closeIfOpen）
+        long at = AlarmRinger.snooze(this);
+        showSnoozeConfirmation(at, meds);
+    }
+
+    /** 「あとで」を押したあとの確認。画面のどこか・「閉じる」を押すか、数秒たつと閉じる */
+    private void showSnoozeConfirmation(long at, CharSequence meds) {
+        handler.removeCallbacksAndMessages(null);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER);
+        root.setBackgroundColor(COLOR_PAPER);
+        int pad = dp(24);
+        root.setPadding(pad, pad, pad, pad);
+        // アラームの画面と同じく、ナビゲーションバー・カメラの切り欠きに文字やボタンが重ならないようにする
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            v.setPadding(pad + bars.left, pad + bars.top, pad + bars.right, pad + bars.bottom);
+            return WindowInsetsCompat.CONSUMED;
+        });
+        root.setOnClickListener(v -> finish());
+
+        TextView title = text(30, COLOR_INDIGO_DEEP, SERIF_BOLD);
+        String time = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.JAPAN).format(new java.util.Date(at));
+        title.setText(time + " に\nもう一度お知らせします");
+        root.addView(title, below(0));
+
+        TextView medsCopy = text(24, COLOR_INK, Typeface.DEFAULT_BOLD);
+        GradientDrawable frame = rounded(Color.WHITE, dp(20));
+        frame.setStroke(dp(2), COLOR_INK_SOFT);
+        medsCopy.setBackground(frame);
+        medsCopy.setPadding(dp(20), dp(GAP), dp(20), dp(GAP));
+        medsCopy.setText(meds);
+        root.addView(medsCopy, below(GAP * 2));
+
+        TextView note = text(19, COLOR_INK_SOFT, Typeface.DEFAULT);
+        note.setText("上のお薬を、5分後にもう一度お知らせします。");
+        root.addView(note, below(GAP));
+
+        Button close = new Button(this);
+        close.setText("閉じる");
+        close.setAllCaps(false);
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        close.setTypeface(Typeface.DEFAULT_BOLD);
+        close.setTextColor(COLOR_INDIGO);
+        close.setBackground(outlined(COLOR_INDIGO));
+        close.setStateListAnimator(null);
+        close.setMinHeight(dp(64));
+        close.setOnClickListener(v -> finish());
+        root.addView(close, below(GAP * 2));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(COLOR_PAPER);
+        scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+        setContentView(scroll);
+        handler.postDelayed(this::finish, SNOOZE_CONFIRM_MS);
     }
 
     // ---- 画面（XML を使わずにコードで組み立てる） ----
@@ -353,8 +439,10 @@ public class AlarmActivity extends AppCompatActivity {
 
         // 「あとで」は、Web 版と同じく、灰色の枠で囲んだ控えめなボタンにする（.alarm-dialog .btn-ghost）。
         // 枠が無いと、押せる場所だと分かりにくいため。「映像なし」（藍色の枠）より目立たない色にする
+        // 文は onResume で、お薬の数に合わせる（2 つ以上なら「あとで（2つとも5分後にもう一度お知らせ）」）
         Button snooze = new Button(this);
-        snooze.setText("あとで（5分後にもう一度お知らせ）");
+        snoozeButton = snooze;
+        snooze.setText(AlarmRinger.snoozeLabel(1, true));
         snooze.setAllCaps(false);
         snooze.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         snooze.setTypeface(Typeface.DEFAULT_BOLD);
@@ -408,6 +496,16 @@ public class AlarmActivity extends AppCompatActivity {
         );
         labelParams.topMargin = dp(8);
         camera.addView(label, labelParams);
+
+        // お薬が 2 つ以上のときだけ出す「2つのお薬をまとめて記録します」（onResume で文と表示を決める）
+        cameraSubView = text(19, Color.WHITE, Typeface.DEFAULT_BOLD);
+        cameraSubView.setVisibility(View.GONE);
+        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        subParams.topMargin = dp(4);
+        camera.addView(cameraSubView, subParams);
         return camera;
     }
 
@@ -418,13 +516,22 @@ public class AlarmActivity extends AppCompatActivity {
         return s;
     }
 
-    /** お薬の一覧（1 行に 1 つ）。名前は大きく、用量は少し小さく薄い色で添える（例: 「ロキソニン 1錠」） */
+    /**
+     * お薬の一覧（1 行に 1 つ）。名前は大きく、用量は少し小さく薄い色で添える（例: 「ロキソニン 1錠」）。
+     * 前の時刻から残っているお薬には、その時刻を添える（例: 「07:30 アムロジン 1錠」）
+     */
     private CharSequence medsText(AlarmStore store, List<AlarmStore.Item> items) {
+        long latest = AlarmRinger.latestOrigin(items);
         SpannableStringBuilder sb = new SpannableStringBuilder();
         for (AlarmStore.Item item : items) {
             AlarmStore.Schedule s = store.findSchedule(item.id);
             if (s == null) continue;
             if (sb.length() > 0) sb.append("\n");
+            if (AlarmRinger.isEarlier(item, latest)) {
+                int from = sb.length();
+                sb.append(s.timeText()).append(" ");
+                sb.setSpan(new ForegroundColorSpan(COLOR_INDIGO_DEEP), from, sb.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
             sb.append(s.name);
             if (!s.amount.isEmpty()) {
                 int from = sb.length();

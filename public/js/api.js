@@ -281,6 +281,9 @@ const Api = {
   createLog: (payload) => apiRequest('/logs', { method: 'POST', body: payload }),
   takeLog: (id, payload) => apiRequest(`/logs/${id}/take`, { method: 'PATCH', body: payload }),
   skipLog: (id, payload) => apiRequest(`/logs/${id}/skip`, { method: 'PATCH', body: payload }),
+  // 複数の記録をまとめて記録する（同じ時刻のお薬を 1 回の撮影で記録するとき。家族への通知は 1 通）
+  takeLogs: (ids, payload = {}) => apiRequest('/logs/take-many', { method: 'POST', body: { ...payload, log_ids: ids } }),
+  skipLogs: (ids) => apiRequest('/logs/skip-many', { method: 'POST', body: { log_ids: ids } }),
   // 記録タブからの状態の変更（status: 'taken' | 'skipped' | 'pending'）
   updateLogStatus: (id, status) => apiRequest(`/logs/${id}/status`, { method: 'PATCH', body: { status } }),
   getVideoUploadUrl: (id) => apiRequest(`/logs/${id}/video-upload-url`, { method: 'POST' }),

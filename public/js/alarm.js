@@ -19,6 +19,12 @@
 //    ・端末のアラームで「あとで」にしたあいだは、この画面のアラームも出さない（NativeAlarm.isSnoozed）
 //    ・「カメラを起動する」を押したあと・撮影画面を開いたあとは、知らせていた予定を「記録待ち」にし、
 //      記録しないままになった予定を、5分後に端末のアラームが音つきで鳴らし直す
+//  - この画面で知らせている（撮影画面で記録しようとしている）お薬は、端末にも伝えておく（NativeAlarm.setAppAlarm）。
+//    記録しないままアプリを離れたら（ホームに戻る・ほかのアプリを開く・画面を消す）、数秒後に端末のアラームが
+//    音と画面上部の帯で知らせ続け、アプリに戻ると、またこの画面が声で知らせる（MainActivity・AlarmRinger.onAppHidden）
+// お薬が 2 つ以上あるときは、お薬ごとにチェックを付けて並べ、チェックしたお薬を 1 回の撮影（または映像なし）でまとめて記録する。
+// 同じ時刻のお薬は、実際には一度に飲むことが多いため。飲んでいないお薬まで「飲んだ」にならないよう、
+// どのお薬を記録するかはチェックで見せ、前の時刻から残っているお薬は、最初はチェックを外しておく。
 // ============================================================
 
 // ------------------------------------------------------------
@@ -119,6 +125,20 @@ const NativeAlarm = (() => {
       // 古い版のアプリには snooze が無い。その場合は画面のアラームだけが 5 分後に出る
       console.warn('[alarm] 端末のアラームを「あとで」にできませんでした:', err);
     }
+  }
+
+  // この画面で知らせている（撮影画面で記録しようとしている）予定を端末に伝える。
+  // 記録しないままアプリを離れたら、端末のアラームが数秒後に引き継いで鳴らす。空の配列で「知らせていない」に戻す
+  // items: [{ schedule, at }]。同じ内容のときは送らない
+  let appAlarmKey = null;
+  function setAppAlarm(items) {
+    if (!plugin) return;
+    const list = items.map(({ schedule, at }) => ({ id: schedule.id, origin: at.getTime() }));
+    const key = list.map((i) => `${i.id}@${i.origin}`).join(',');
+    if (key === appAlarmKey) return;
+    appAlarmKey = key;
+    // 古い版のアプリには appAlarm が無い（そのときは、これまでどおり 5 分後の鳴らし直しだけになる）
+    plugin.appAlarm({ items: list }).catch((err) => console.warn('[alarm] 知らせているお薬を端末に伝えられませんでした:', err));
   }
 
   // 端末のアラーム（全画面・通知・画面上部の帯）の「あとで」ボタンで先延ばしにした予定か。そのあいだは画面のアラームも出さない
@@ -266,7 +286,7 @@ const NativeAlarm = (() => {
   }
 
   return {
-    available, sync, snooze, isSnoozed, announce, stopAnnounce, ringsNatively,
+    available, sync, snooze, setAppAlarm, isSnoozed, announce, stopAnnounce, ringsNatively,
     status, missing, fix, openSettings, clear, renderSetupNotice, renderChecks,
   };
 })();
@@ -283,16 +303,21 @@ const MedAlarm = (() => {
   const FIRST_SPEECH_DELAY_MS = 3000;
   const SPEECH_GAP_MS = 8000;
   const SPEECH_RATE = 0.9;
+  // 「あとで」にしたお薬（予定の id → もう一度知らせる時刻）。画面を移っても続くよう localStorage に保存する。
+  // 以前はお薬を区別せずに 1 つの時刻だけを保存していたため、そのあいだに時刻になった別のお薬も出なかった
   const SNOOZE_KEY = 'medi_watch_alarm_snooze';
 
   let options = {};
   let schedules = [];
   let logs = [];
   let fetchedAt = 0;
+  let fetchSeq = 0; // 予定と記録の取得の番号（あとから始めた取得の結果だけを使う）
   let checkTimer = null;
-  let holdUntil = 0; // カメラの画面を開くまでのあいだ、出し直さない
+  let holdUntil = 0; // 「カメラを起動する」を押してから、撮影画面が開くまでのあいだ、出し直さない
+  let memSnoozes = {}; // localStorage を使えないときの「あとで」
   let dialog = null;
   let items = []; // いま知らせている予定 [{ schedule, log, at }]
+  const checked = new Map(); // お薬が 2 つ以上のときの、お薬ごとのチェック（予定の id → 記録するか）
   let shownKey = ''; // いま画面に描いているお薬（予定の id をつないだもの）
   let nowTimer = null; // 画面の「いまの時刻」を進めるタイマー
   let audioCtx = null;
@@ -306,7 +331,8 @@ const MedAlarm = (() => {
   let wakeLock = null;
 
   // options:
-  //   onStartCamera(item) … 「カメラを起動する」を押したとき（省略時はホームへ移動して撮影を始める）
+  //   onStartCamera(selected, all) … 「カメラを起動する」を押したとき（省略時はホームへ移動して撮影を始める）。
+  //                                   selected: 記録するお薬（チェックしたもの）、all: 知らせていたお薬すべて
   //   onRecorded()        … 映像なしで記録したあと（ホームの一覧を更新するため）
   //   isBusy()            … true のあいだは出さない（ホームで撮影中など）
   function start(opts = {}) {
@@ -333,17 +359,21 @@ const MedAlarm = (() => {
     if (document.hidden) return;
     let synced = false;
     if (Date.now() - fetchedAt >= FETCH_INTERVAL_MS) {
+      const seq = ++fetchSeq;
       try {
         const [{ schedules: s }, { logs: l }] = await Promise.all([
           Api.listSchedules(),
           Api.listLogs({ date: localDateStr(new Date()) }),
         ]);
-        schedules = s || [];
-        logs = l || [];
-        fetchedAt = Date.now();
-        // ネイティブ版：アプリを閉じていても鳴らせるよう、端末のアラームを予約し直す
-        await NativeAlarm.sync(schedules, logs, localDateStr(new Date()));
-        synced = true;
+        // 記録する前に始めた取得が、記録したあとに届いたときは使わない（記録したお薬が、また出てしまうため）
+        if (seq === fetchSeq) {
+          schedules = s || [];
+          logs = l || [];
+          fetchedAt = Date.now();
+          // ネイティブ版：アプリを閉じていても鳴らせるよう、端末のアラームを予約し直す
+          await NativeAlarm.sync(schedules, logs, localDateStr(new Date()));
+          synced = true;
+        }
       } catch (err) {
         console.warn('[alarm] 予定の取得に失敗しました:', err);
       }
@@ -355,14 +385,28 @@ const MedAlarm = (() => {
   }
 
   function evaluate() {
-    if (Date.now() < holdUntil || isSnoozed() || options.isBusy?.()) {
+    // 「あとで」にしたお薬（この画面・端末のアラームのどちらで押したものも）は、そのあいだ知らせない
+    const due = dueItems().filter(({ schedule }) => !isSnoozed(schedule.id) && !NativeAlarm.isSnoozed(schedule.id));
+    // ネイティブ版：知らせている（撮影画面で記録しようとしている）お薬を端末に伝える。
+    // 記録しないままアプリを離れたら、端末のアラームが引き継いで鳴らす
+    NativeAlarm.setAppAlarm(due);
+    if (due.length === 0 || Date.now() < holdUntil || options.isBusy?.()) {
       hide();
       return;
     }
-    // 端末のアラームで「あとで」にした予定は、そのあいだ画面でも知らせない
-    const due = dueItems().filter(({ schedule }) => !NativeAlarm.isSnoozed(schedule.id));
-    if (due.length > 0) show(due);
-    else hide();
+    show(due);
+  }
+
+  // 記録したお薬を、サーバーから取り直すのを待たずに外す（残りのお薬があれば、すぐに続けて知らせる）。
+  // 撮影画面・この画面で記録したあとに呼ぶ。そのあとでサーバーの記録を取り直して確かめる
+  function markRecorded(scheduleIds, status = 'taken') {
+    const ids = new Set(scheduleIds);
+    logs = logs
+      .filter((l) => !(ids.has(l.schedule_id) && l.status === 'pending'))
+      .concat([...ids].map((id) => ({ id: `local-${id}`, schedule_id: id, status })));
+    holdUntil = 0;
+    evaluate();
+    refresh();
   }
 
   // 服薬時刻を過ぎていて、まだ記録していない予定（ホームの表示と同じく端末の時刻で判定する）
@@ -403,15 +447,16 @@ const MedAlarm = (() => {
         <p class="alarm-time"><span id="alarm-time"></span><span class="alarm-time-of">に飲む</span></p>
         <h2 id="alarm-title">お薬の時間です</h2>
         <ul class="alarm-meds" id="alarm-meds"></ul>
+        <ul class="alarm-checks" id="alarm-checks" hidden></ul>
+        <p class="text-sm alarm-note" id="alarm-multi-note" hidden>チェックの入っているお薬を記録します。飲まないお薬は、チェックを外してください。</p>
         <button type="button" class="alarm-camera-btn" data-alarm="camera">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
           カメラを起動する
+          <span class="alarm-camera-sub" id="alarm-camera-sub" hidden></span>
         </button>
         <button type="button" class="btn btn-outline" data-alarm="no-video">飲みました（映像なしで記録する）</button>
-        <p class="text-sm alarm-note" id="alarm-multi-note" hidden>お薬は1つずつ記録します。飲んだお薬のボタンを押してください。</p>
-        <ul class="alarm-items" id="alarm-items" hidden></ul>
-        <p class="text-sm alarm-note" id="alarm-skip-note" hidden>スキップするときは、「カメラで記録する」を押すと出る画面から選べます。</p>
-        <button type="button" class="btn btn-ghost alarm-snooze-btn" data-alarm="snooze">あとで<span>（${SNOOZE_MIN}分後にもう一度お知らせ）</span></button>
+        <p class="text-sm alarm-note">飲まないときは、「カメラを起動する」の先で選べます。</p>
+        <button type="button" class="btn btn-ghost alarm-snooze-btn" data-alarm="snooze">あとで<span id="alarm-snooze-sub"></span></button>
         <p class="text-sm alarm-note" id="alarm-sound-hint" hidden>音が鳴らないときは、画面のどこかに一度触れてください。</p>
       </div>`;
     // Esc キーなどで閉じられないようにする（ボタンで操作してもらうため）
@@ -419,14 +464,13 @@ const MedAlarm = (() => {
     dialog.querySelector('[data-alarm="camera"]').addEventListener('click', onCamera);
     dialog.querySelector('[data-alarm="no-video"]').addEventListener('click', onRecordWithoutVideo);
     dialog.querySelector('[data-alarm="snooze"]').addEventListener('click', onSnooze);
-    // お薬が複数あるときの、お薬ごとのボタン
-    dialog.querySelector('#alarm-items').addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-act]');
-      if (!btn) return;
-      const item = items.find(({ schedule }) => schedule.id === btn.dataset.id);
-      if (!item) return;
-      if (btn.dataset.act === 'camera') startCamera(item);
-      else recordWithoutVideo([item], btn);
+    // お薬が 2 つ以上のときの、お薬ごとのチェック
+    dialog.querySelector('#alarm-checks').addEventListener('change', (e) => {
+      const box = e.target.closest('input[type="checkbox"][data-id]');
+      if (!box) return;
+      checked.set(box.dataset.id, box.checked);
+      box.closest('.alarm-check')?.classList.toggle('is-off', !box.checked);
+      updateSelection();
     });
     document.body.appendChild(dialog);
   }
@@ -435,7 +479,8 @@ const MedAlarm = (() => {
     if (!dialog) buildDialog();
     items = due;
 
-    // 知らせるお薬が変わったときだけ描き直す（10秒ごとの判定のたびに描き直すと、押している最中のボタンが作り直されてしまう）
+    // 知らせるお薬が変わったときだけ描き直す（10秒ごとの判定のたびに描き直すと、押している最中のボタンや、
+    // 付け外ししたチェックが作り直されてしまう）
     const key = due.map(({ schedule }) => schedule.id).join(',');
     if (key !== shownKey) {
       shownKey = key;
@@ -455,41 +500,78 @@ const MedAlarm = (() => {
     }
   }
 
-  // お薬が 1 つのとき … 大きな「カメラを起動する」と「映像なしで記録」のボタン
-  // お薬が複数のとき … お薬ごとに「カメラで記録する」「映像なしで記録」のボタンを並べ、1つずつ記録してもらう
-  // （まとめて 1 回で記録すると、飲んでいないお薬や、前の時刻から残っていたお薬まで「飲んだ」になってしまうため）
+  // いちばん新しい服薬時刻（大きく出す「08:00 に飲む」と、最初からチェックを付けるお薬に使う）
+  function latestAt(due) {
+    return new Date(Math.max(...due.map(({ at }) => at.getTime())));
+  }
+
+  // お薬が 1 つのとき … お薬の名前と、大きな「カメラを起動する」「映像なしで記録」のボタン
+  // お薬が 2 つ以上のとき … お薬ごとにチェックを付けて並べ、同じボタンで、チェックしたお薬をまとめて記録する。
+  //   いちばん新しい時刻のお薬（いま鳴っている時刻のお薬）は最初からチェックを付け、前の時刻から残っているお薬は外しておく
+  //   （残っていたお薬まで、まとめて「飲んだ」にならないように）。前の時刻のお薬には、その時刻も添える
   function render(due) {
     const multi = due.length > 1;
-    const label = ({ schedule }) => {
-      const med = schedule.medications || {};
+    const latest = latestAt(due);
+    const amountHtml = (med) => {
       const amount = `${med.dosage || ''}${med.unit || ''}`;
-      return `${escapeText(med.name || 'お薬')}${amount ? `<span>${escapeText(amount)}</span>` : ''}`;
+      return amount ? `<span>${escapeText(amount)}</span>` : '';
     };
 
-    dialog.querySelector('#alarm-time').textContent = formatClock(due[0].at);
+    dialog.querySelector('#alarm-time').textContent = formatClock(latest);
     const medsEl = dialog.querySelector('#alarm-meds');
     medsEl.hidden = multi;
-    medsEl.innerHTML = multi ? '' : `<li>${label(due[0])}</li>`;
-    dialog.querySelector('[data-alarm="camera"]').hidden = multi;
-    dialog.querySelector('[data-alarm="no-video"]').hidden = multi;
+    medsEl.innerHTML = multi
+      ? ''
+      : `<li>${escapeText(due[0].schedule.medications?.name || 'お薬')}${amountHtml(due[0].schedule.medications || {})}</li>`;
     dialog.querySelector('#alarm-multi-note').hidden = !multi;
-    dialog.querySelector('#alarm-skip-note').hidden = !multi;
+    dialog.querySelector('#alarm-snooze-sub').textContent = multi
+      ? `（${due.length}つとも${SNOOZE_MIN}分後にもう一度お知らせ）`
+      : `（${SNOOZE_MIN}分後にもう一度お知らせ）`;
 
-    const itemsEl = dialog.querySelector('#alarm-items');
-    itemsEl.hidden = !multi;
-    itemsEl.innerHTML = multi
+    // チェックは、知らせているあいだは付け外しした状態を保つ（新しく加わったお薬だけ、最初の状態にする）
+    const ids = new Set(due.map(({ schedule }) => schedule.id));
+    [...checked.keys()].forEach((id) => { if (!ids.has(id)) checked.delete(id); });
+    due.forEach(({ schedule, at }) => {
+      if (!checked.has(schedule.id)) checked.set(schedule.id, at.getTime() === latest.getTime());
+    });
+
+    const checksEl = dialog.querySelector('#alarm-checks');
+    checksEl.hidden = !multi;
+    checksEl.innerHTML = multi
       ? due
-          .map((item) => {
-            const id = escapeText(item.schedule.id);
+          .map(({ schedule, at }) => {
+            const med = schedule.medications || {};
+            const on = checked.get(schedule.id);
+            const time = at.getTime() === latest.getTime() ? '' : `<span class="alarm-check-time">${formatClock(at)}</span>`;
             return `
-              <li class="alarm-item">
-                <p class="alarm-item-name"><span class="alarm-item-time">${formatClock(item.at)}</span>${label(item)}</p>
-                <button type="button" class="btn btn-accent" data-act="camera" data-id="${id}">カメラで記録する</button>
-                <button type="button" class="btn btn-outline" data-act="no-video" data-id="${id}">飲みました（映像なしで記録する）</button>
+              <li>
+                <label class="alarm-check ${on ? '' : 'is-off'}">
+                  <input type="checkbox" data-id="${escapeText(schedule.id)}" ${on ? 'checked' : ''} />
+                  <span class="alarm-check-name">${time}${escapeText(med.name || 'お薬')}${amountHtml(med)}</span>
+                </label>
               </li>`;
           })
           .join('')
       : '';
+    updateSelection();
+  }
+
+  // 記録するお薬（お薬が 1 つならそのお薬、2 つ以上ならチェックしたお薬）
+  function selectedItems() {
+    if (items.length <= 1) return items.slice();
+    return items.filter(({ schedule }) => checked.get(schedule.id));
+  }
+
+  // チェックの数に合わせて、ボタンの説明と押せるかどうかを変える
+  function updateSelection() {
+    if (!dialog) return;
+    const multi = items.length > 1;
+    const count = selectedItems().length;
+    const sub = dialog.querySelector('#alarm-camera-sub');
+    sub.hidden = !multi;
+    sub.textContent = count > 0 ? `チェックした${count}つをまとめて記録します` : '記録するお薬にチェックを入れてください';
+    dialog.querySelector('[data-alarm="camera"]').disabled = count === 0;
+    dialog.querySelector('[data-alarm="no-video"]').disabled = count === 0;
   }
 
   function updateNow() {
@@ -510,91 +592,121 @@ const MedAlarm = (() => {
 
   // ---- ボタン ----
   function onCamera() {
-    startCamera(items[0]);
+    startCamera(selectedItems());
   }
 
-  function startCamera(item) {
-    if (!item) return;
-    holdUntil = Date.now() + 15 * 1000;
+  // selected: 記録するお薬（チェックしたもの）。撮影画面では、知らせていたお薬すべてを並べ、selected にチェックを付けて出す
+  function startCamera(selected) {
+    if (!selected || selected.length === 0) return;
+    const all = items.slice();
+    holdUntil = Date.now() + 15 * 1000; // 撮影画面が開くまでのあいだ（開いたら holdDue で解除する）
     // ネイティブ版：端末のアラームの音を止め、知らせていた予定を記録待ちにする
-    //（記録しないままアプリを離れても、5分後に端末のアラームが鳴る）
-    NativeAlarm.snooze(items, true);
+    //（記録しないままアプリを離れても、端末のアラームが鳴る）
+    NativeAlarm.snooze(all, true);
     hide();
     if (options.onStartCamera) {
-      options.onStartCamera(item);
+      options.onStartCamera(selected, all);
     } else {
-      location.href = `home.html?take=${encodeURIComponent(item.schedule.id)}`;
+      const ids = (list) => encodeURIComponent(list.map(({ schedule }) => schedule.id).join(','));
+      location.href = `home.html?take=${ids(all)}&pick=${ids(selected)}`;
     }
   }
 
   function onRecordWithoutVideo(e) {
-    recordWithoutVideo(items.slice(0, 1), e.currentTarget); // このボタンは、お薬が 1 つのときだけ出す
+    recordWithoutVideo(selectedItems(), e.currentTarget);
   }
 
-  // 選んだお薬だけを、映像なしで「飲んだ」と記録する。ほかに知らせるお薬が残っていれば、画面はそのまま続ける
+  // 選んだお薬を、映像なしで「飲んだ」とまとめて記録する（家族への通知は 1 通）。
+  // ほかに知らせるお薬（チェックを外したもの）が残っていれば、画面はそのまま続ける
   async function recordWithoutVideo(targets, btn) {
-    const named = items.length > 1 && targets.length === 1;
-    const message = named
-      ? `「${targets[0].schedule.medications?.name || 'お薬'}」の服薬を記録しました。`
-      : '服薬を記録しました。';
+    if (targets.length === 0) return;
+    const names = targets.map(({ schedule }) => `「${schedule.medications?.name || 'お薬'}」`).join('');
+    const message = items.length > 1 ? `${names}の服薬を記録しました。` : '服薬を記録しました。';
     btn.disabled = true;
     try {
-      for (const { schedule, log } of targets) {
-        const logId = log?.id || (await Api.createLog({ schedule_id: schedule.id, date: localDateStr(new Date()) })).log.id;
-        await Api.takeLog(logId, {});
-        // 取り直す前でも画面に反映されるよう、手元の記録も書き換えておく
-        logs = logs.filter((l) => l.id !== logId).concat({ id: logId, schedule_id: schedule.id, status: 'taken' });
-      }
-      evaluate(); // 記録したお薬を外す（残りがあれば続けて知らせ、無ければ閉じる）
+      const logIds = await Promise.all(
+        targets.map(({ schedule, log }) =>
+          log?.id ||
+          Api.createLog({ schedule_id: schedule.id, date: localDateStr(new Date()) }).then(({ log: created }) => created.id)
+        )
+      );
+      await Api.takeLogs(logIds);
+      markRecorded(targets.map(({ schedule }) => schedule.id)); // 記録したお薬を外す（残りがあれば続けて知らせ、無ければ閉じる）
       showToast(message, 'success');
       options.onRecorded?.();
-      await refresh();
     } catch (err) {
       handleApiError(err, '記録に失敗しました。');
     } finally {
       btn.disabled = false;
+      updateSelection();
     }
   }
 
+  // 「あとで」… 知らせていたお薬すべてを 5 分後にもう一度知らせる（ボタンにも「2つとも」と書いてある）。
+  // どのお薬をいつ知らせるかを、お知らせでも伝える
   function onSnooze() {
-    snoozeItems(items);
+    const targets = items.slice();
+    if (targets.length === 0) return;
+    const until = snoozeItems(targets);
+    const names = targets.map(({ schedule }) => schedule.medications?.name || 'お薬').join('・');
+    showToast(`${formatClock(new Date(until))} に、もう一度お知らせします（${names}）。`, 'info', 6000);
   }
 
   // 「あとで」にする。ネイティブ版では、端末のアラームも 5 分後に鳴らし直す
-  // （端末のアラームにも「あとで」と伝え、そのあいだは端末側の全画面・通知も出ないようにする）
+  // （端末のアラームにも「あとで」と伝え、そのあいだは端末側の全画面・通知も出ないようにする）。
+  // もう一度知らせる時刻を返す
   function snoozeItems(targets) {
-    try {
-      localStorage.setItem(SNOOZE_KEY, String(Date.now() + SNOOZE_MIN * 60 * 1000));
-    } catch { /* 保存できない場合は、このページを開いているあいだだけ止める */ }
-    holdUntil = Date.now() + SNOOZE_MIN * 60 * 1000;
+    const until = Date.now() + SNOOZE_MIN * 60 * 1000;
+    const map = readSnoozes();
+    Object.keys(map).forEach((id) => { if (Number(map[id]) <= Date.now()) delete map[id]; });
+    targets.forEach(({ schedule }) => { map[schedule.id] = until; });
+    writeSnoozes(map);
     NativeAlarm.snooze(targets);
-    hide();
+    evaluate();
+    return until;
   }
 
-  // 撮影画面を記録せずに閉じたときに呼ぶ。その予定がいま知らせる対象（服薬時刻から60分以内で未記録）なら、
-  // 「あとで」と同じ扱いにして true を返す。対象でなければ何もしない（時刻より前に開いて閉じただけ、など）
-  function snoozeIfDue(scheduleId) {
+  // 撮影画面を記録せずに閉じたときに呼ぶ（scheduleIds: 撮影画面に出していたお薬）。そのどれかがいま知らせる対象
+  // （服薬時刻から60分以内で未記録）なら、知らせる対象のお薬すべてを「あとで」と同じ扱いにして true を返す。
+  // 対象でなければ何もしない（時刻より前に開いて閉じただけ、など）
+  function snoozeIfDue(scheduleIds) {
+    const ids = [].concat(scheduleIds);
     const due = dueItems();
-    if (!due.some(({ schedule }) => schedule.id === scheduleId)) return false;
+    if (!due.some(({ schedule }) => ids.includes(schedule.id))) return false;
     snoozeItems(due);
     return true;
   }
 
   // 撮影画面を開いたときに呼ぶ。いま知らせる対象の予定を、端末のアラームの「記録待ち」にする
   // （ネイティブ版だけ。5分を数え直すので、撮影の最中に端末のアラームが鳴り出しにくくなる。
-  //   記録が済んだ予定は sync で外れ、記録しないままの予定だけが5分後に鳴る）
+  //   記録が済んだ予定は sync で外れ、記録しないままの予定だけが5分後に鳴る）。
+  // 撮影画面が開いたので、「カメラを起動する」を押したときの「出し直さない」も解除する
+  // （そのままにすると、すぐに記録したとき、残りのお薬の画面がしばらく出なかった）
   function holdDue() {
+    holdUntil = 0;
     const due = dueItems();
     if (due.length > 0) NativeAlarm.snooze(due, true);
   }
 
-  // 「あとで」は画面を移っても続くよう localStorage に保存する
-  function isSnoozed() {
+  // 「あとで」にしたお薬か
+  function isSnoozed(scheduleId) {
+    return Number(readSnoozes()[scheduleId] || 0) > Date.now();
+  }
+
+  function readSnoozes() {
     try {
-      return Date.now() < Number(localStorage.getItem(SNOOZE_KEY) || 0);
-    } catch {
-      return false;
-    }
+      const saved = JSON.parse(localStorage.getItem(SNOOZE_KEY) || '{}');
+      // 以前の版が保存した、お薬を区別しない時刻（数値）は使わない
+      if (saved && typeof saved === 'object' && !Array.isArray(saved)) return saved;
+    } catch { /* 読めないときは、このページを開いているあいだの分を使う */ }
+    return { ...memSnoozes };
+  }
+
+  function writeSnoozes(map) {
+    memSnoozes = { ...map };
+    try {
+      localStorage.setItem(SNOOZE_KEY, JSON.stringify(map));
+    } catch { /* 保存できない場合は、このページを開いているあいだだけ止める */ }
   }
 
   // ---- 音・読み上げ・振動 ----
@@ -809,5 +921,5 @@ const MedAlarm = (() => {
     })[c]);
   }
 
-  return { start, refresh, snoozeIfDue, holdDue, SNOOZE_MIN };
+  return { start, refresh, markRecorded, snoozeIfDue, holdDue, SNOOZE_MIN };
 })();

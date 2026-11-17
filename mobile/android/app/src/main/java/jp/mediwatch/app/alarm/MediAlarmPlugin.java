@@ -32,6 +32,8 @@ import org.json.JSONObject;
  * - snooze({ items, hold })         … 画面から、5 分後にもう一度鳴らす予約を入れる（items は { id, origin: 本来の服薬時刻 }）。
  *                                     hold = false は「あとで」、true は記録待ち（撮影画面を開いたとき）
  * - getStatus() などの戻り値の snoozed … 端末のアラームで「あとで」にした予定（id → もう一度鳴らす時刻）
+ * - appAlarm({ items })             … 画面で知らせている（撮影画面で記録しようとしている）お薬。記録しないままアプリを離れたら、
+ *                                     数秒後に端末のアラームが引き継いで鳴らす（items は { id, origin }。空なら知らせていない）
  * - announce({ text })              … 画面のアラームの文を 1 回読み上げる（端末のアラームが鳴っているあいだは読み上げない）。
  *                                     音量ボタンで「アラーム」の音量を変えられるようにする
  * - stopAnnounce()                  … その読み上げを止め、音量ボタンをいつもの音量に戻す
@@ -60,7 +62,26 @@ public class MediAlarmPlugin extends Plugin {
         store.forgetRemovedSchedules();
         AlarmRinger.removeDone(context); // アプリで記録した予定のアラームを止める
         AlarmScheduler.reschedule(context);
+        AlarmRinger.updateSnoozeNotice(context); // 記録が済んだお薬を「もう一度お知らせします」から外す
         call.resolve(status());
+    }
+
+    /**
+     * アプリの画面で知らせている（撮影画面で記録しようとしている）お薬を受け取る（items は { id, origin: 本来の服薬時刻 }）。
+     * 記録しないままアプリを離れたら、端末のアラームが引き継いで鳴らす（AlarmRinger.onAppHidden）。空なら「知らせていない」
+     */
+    @PluginMethod
+    public void appAlarm(PluginCall call) {
+        JSArray arr = call.getArray("items", new JSArray());
+        List<AlarmStore.Item> items = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            String id = o.optString("id", "");
+            if (!id.isEmpty()) items.add(new AlarmStore.Item(id, o.optLong("origin")));
+        }
+        new AlarmStore(getContext()).saveAppAlarm(items);
+        call.resolve();
     }
 
     @PluginMethod
@@ -111,6 +132,7 @@ public class MediAlarmPlugin extends Plugin {
         AlarmRinger.dismiss(context);
         new AlarmStore(context).clearAll();
         AlarmScheduler.reschedule(context); // 予定が空なので、予約が取り消される
+        AlarmRinger.updateSnoozeNotice(context); // 「あとで」の通知も消す
         call.resolve();
     }
 

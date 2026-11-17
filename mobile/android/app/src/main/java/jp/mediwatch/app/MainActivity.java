@@ -10,7 +10,8 @@ import jp.mediwatch.app.alarm.MediAlarmPlugin;
 /**
  * アプリ本体の画面。public/ の Web 画面を WebView で表示する（Capacitor）。
  * アラームの「カメラを起動する」から開かれたときは、ホームで撮影を始める
- * （home.html?take=スケジュールID。Web 版のアラームと同じ入り口）。
+ * （home.html?take=スケジュールID,スケジュールID…。鳴っていたお薬すべてを、1 回の撮影でまとめて記録する。
+ *   Web 版のアラームと同じ入り口）。
  * アラームの「飲みました（映像なしで記録する）」から開かれたときは、ホームで映像なしの記録をする
  * （home.html?record=スケジュールID）。お薬が 2 つ以上のときは、ホームを開くだけにして、
  * アプリの中の「お薬の時間です」の画面で、お薬ごとに選んでもらう。
@@ -29,6 +30,28 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MediAlarmPlugin.class);
         super.onCreate(savedInstanceState);
         openFromAlarmIfRequested(getIntent());
+    }
+
+    /**
+     * アプリが見えるようになったとき。アプリを離れていたあいだに、知らせていたお薬を端末のアラームが
+     * 引き継いで鳴らしていれば止め、アプリの画面（「お薬の時間です」）が、また声で知らせる
+     */
+    @Override
+    public void onStart() {
+        super.onStart();
+        AlarmRinger.onAppShown(this);
+    }
+
+    /**
+     * アプリが見えなくなったとき（ホームに戻る・ほかのアプリを開く・画面を消す）。
+     * アプリの画面で知らせていたお薬が、記録しないまま残っていれば、数秒後に端末のアラームが引き継いで鳴らす
+     * （アプリの画面は、裏に回ると声で知らせられないため）。
+     * JavaScript ではなくここで行うのは、アプリが裏に回ると、画面の JavaScript のタイマーが止まるため
+     */
+    @Override
+    public void onStop() {
+        AlarmRinger.onAppHidden(this);
+        super.onStop();
     }
 
     @Override
