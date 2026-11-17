@@ -60,7 +60,7 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
   - `createAuthClient()`: リクエストごとに新しく作る anon クライアント。サインアップ／ログイン／OTP／リフレッシュの処理はすべてこれを使う（`src/routes/auth.js`）。
   - `createUserClient(token)`: ユーザー権限で RLS が適用される。`requireAuth`（`src/middleware/auth.js`）がこれを `req.supabase` として、`req.user`・`req.accessToken` と一緒に付与する。ルートのハンドラは `req.supabase` 経由でクエリし、アクセス制御を RLS に任せる。
 - ルートの書き方: ハンドラを `asyncHandler` で包み、DB エラーは `sendSupabaseError(res, error, '日本語メッセージ')`（`src/lib/utils.js`）で返す。この関数が PG のエラーコードを HTTP ステータスと `code` に変換する。エラーのレスポンスは `{ code?, error: '<そのまま利用者に見せてよい日本語>' }` の形で、フロントは文言ではなく `code` で分岐する。
-- `src/services/reminderCron.js` は node-cron で毎分、Web プロセス内で動く。処理順は、有効なスケジュールから今日の `pending` の `medication_logs` を作成 → 患者へリマインド通知 → `scheduled_at` から30分過ぎても pending のままのログについて家族へ「飲み忘れ」通知（`notification_logs` で二重送信を防ぐ）。**日付・時刻はすべて JST（`+09:00`）で扱う。** Render などのサーバーは UTC で動くため。
+- `src/services/reminderCron.js` は node-cron で毎分、Web プロセス内で動く。処理順は、有効なスケジュールから今日の `pending` の `medication_logs` を作成 → 患者へリマインド通知 → `scheduled_at` から30分過ぎても pending のままのログについて家族へ「まだお薬の記録がありません」の通知（type は `medication_missed`。`notification_logs` で二重送信を防ぐ）。本人のスキップは別の種類（`medication_skipped`、「スキップ：○○さん」）で、`src/routes/logs.js` からすぐ送る。アラームの「あとで」はサーバーに伝わらない（ブラウザの localStorage と端末の中だけで持つ）。**日付・時刻はすべて JST（`+09:00`）で扱う。** Render などのサーバーは UTC で動くため。
 - `src/services/notificationService.js` がプッシュ通知を送信する（`notifyCareGroup`, `sendToSubscription`, `vapidConfigured`, `fcmConfigured`）。宛先（`push_subscriptions.kind`）がブラウザ（`webpush`）なら `web-push`、ネイティブ版（`fcm`）なら `firebase-admin` で送る。cron の「お薬の時間です」のリマインドは `webpush` の端末だけに送る（ネイティブ版は端末のアラームが知らせるため）。`src/services/jahisParser.js` は薬局の JAHIS 形式の QR コードを解析する。
 
 ### データベース（`src/supabase/migrations/`）
@@ -71,6 +71,7 @@ medi-watch は電子お薬手帳の Web アプリ（PWA）。患者が服薬を�
 - 0005（使う機能の選択）: `profiles.can_watch`（家族を見守る）／`can_be_watched`（家族に見守ってもらう）で使える機能を決める。登録画面の「使い方」（`watched` / `watcher` / `self`）で初期値が決まり、マイページで変更できる。OFF の人の見守り開始・招待コード発行や、相手がいるあいだの OFF はDBのトリガーが止め、`HINT` の識別子を `sendSupabaseError` が `code` に変換する。`profiles.role` は並び順・初期表示だけに使う。
 - 0006（招待コードの作り直し）: 招待コードは `generate_invite_code()` が作る英大文字・数字8文字のランダムな値（見間違えやすい文字は除く）。見守られる本人が見守りを外すとトリガーで自動的に作り直され、本人は RPC `regenerate_my_invite_code`（`POST /api/care-groups/mine/regenerate`）でも作り直せる。照合は大文字・小文字を区別しない。
 - 0007（ネイティブ版の FCM）: `push_subscriptions.kind`（`webpush` / `fcm`）を追加。FCM のトークンは `endpoint` 列に入れ、`p256dh`・`auth_key` は `webpush` のときだけ必須。
+- 0008（スキップの通知）: `notification_logs.type` の CHECK 制約に `medication_skipped` を追加。
 - `src/supabase/templates/*.html` は Supabase Auth のメールテンプレート（ダッシュボードで設定する）。
 
 ### フロントエンド（`public/`）

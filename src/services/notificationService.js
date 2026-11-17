@@ -128,6 +128,11 @@ async function sendToSubscription(sub, payload, { ttlSeconds = 24 * 60 * 60 } = 
 // 家族宛ての通知には「誰の」お知らせかを必ず入れる。
 // 1つのアカウントで自分の服薬と家族の見守りを両方行うため、
 // 名前が無いと自分のことか家族のことか区別できない。
+// 文言は、サーバーが知っている事実だけを伝える。
+// ・記録が無いとき（medication_missed）は「飲み忘れ」と決めつけない。本人がアラームの「あとで」で
+//   先延ばしにしている場合や、飲んだのに記録し忘れている場合もあり、サーバーにはその区別がつかないため。
+// ・スキップ（medication_skipped）は本人が選んだことなので、飲み忘れとは分け、
+//   アプリ内の表示（ボタン「今回はスキップする」、記録の「スキップ」）と同じ言葉で伝える。
 function buildMessage(type, patientName) {
   const who = patientName ? `${patientName}さん` : 'ご家族';
   switch (type) {
@@ -136,7 +141,9 @@ function buildMessage(type, patientName) {
     case 'medication_taken':
       return { title: `服薬完了：${who}`, body: `${who}がお薬を服用したことが記録されました。` };
     case 'medication_missed':
-      return { title: `飲み忘れの可能性：${who}`, body: `予定の時間に${who}のお薬の記録が確認できませんでした。` };
+      return { title: `まだお薬の記録がありません：${who}`, body: `予定の時間を過ぎましたが、${who}のお薬の記録がありません。` };
+    case 'medication_skipped':
+      return { title: `スキップ：${who}`, body: `${who}が、今回はお薬をスキップしました。` };
     case 'video_recorded':
       return { title: `服薬映像：${who}`, body: `${who}の服薬の様子を映像で確認できます。` };
     default:

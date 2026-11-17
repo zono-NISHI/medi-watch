@@ -144,7 +144,8 @@ router.patch(
 
 // ----------------------------------------------------------
 // PATCH /api/logs/:id/skip
-// 「スキップ」操作（家族への飲み忘れ通知トリガーにも使用）
+// 「スキップ」操作。家族へ「スキップ」の通知を送る
+// （本人が選んだことなので、記録が無いときの通知（medication_missed）とは分ける）
 // ----------------------------------------------------------
 router.patch(
   '/:id/skip',
@@ -164,8 +165,8 @@ router.patch(
     notifyCareGroup({
       patientId: req.user.id,
       logId: log.id,
-      type: 'medication_missed',
-    }).catch((e) => console.error('[notify] 飲み忘れ通知の送信に失敗:', e));
+      type: 'medication_skipped',
+    }).catch((e) => console.error('[notify] スキップの通知の送信に失敗:', e));
 
     res.json({ log });
   })
@@ -219,7 +220,7 @@ router.patch(
 
     const isToday = jstToday(new Date(current.scheduled_at)).dateStr === jstToday().dateStr;
     const notifyType =
-      status === 'taken' ? 'medication_taken' : status === 'skipped' ? 'medication_missed' : null;
+      status === 'taken' ? 'medication_taken' : status === 'skipped' ? 'medication_skipped' : null;
     if (isToday && notifyType && current.status !== status) {
       notifyCareGroup({ patientId: req.user.id, logId: log.id, type: notifyType })
         .catch((e) => console.error('[notify] 記録の変更の通知に失敗:', e));
