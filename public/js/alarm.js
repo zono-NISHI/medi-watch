@@ -212,19 +212,32 @@ const NativeAlarm = (() => {
     if (!st) return;
     listEl.innerHTML = CHECKS.map((c) => {
       const ok = st[c.key] !== false;
+      // Android の版によっては、いつも許可されていて、設定画面でも変えられない許可がある
+      // （例: Android 13 以降の「アラームとリマインダー」は、設定画面のスイッチがオフのまま変えられない表示になるが、アラームは鳴る）
+      // 古い版のアプリは changeable を返さないので、そのときは変えられるものとして扱う
+      const changeable = st.changeable?.[c.key] !== false;
+      let action;
+      if (!ok) {
+        action = `<button type="button" class="btn btn-accent" data-fix="${c.key}">設定する</button>`;
+      } else if (changeable) {
+        // 済みの設定も、端末の設定画面を開いてオフにできるようにする（戻ってきたら mypage.js が状態を確認し直す）
+        action = `<div class="native-alarm-ok-row">
+                    <span class="native-alarm-ok">済み ✓</span>
+                    <button type="button" class="btn btn-outline btn--sm btn--auto" data-change="${c.key}">設定を変える</button>
+                  </div>`;
+      } else {
+        action = `<div>
+                    <span class="native-alarm-ok">済み ✓</span>
+                    <p class="text-sm text-muted">このスマホでは、いつも許可されています（変える必要はありません）。</p>
+                  </div>`;
+      }
       return `
         <li class="native-alarm-check ${ok ? 'is-ok' : ''}">
           <div>
             <strong>${escapeHtml(c.label)}</strong>
             <p class="text-sm text-muted">${escapeHtml(c.why)}</p>
           </div>
-          ${ok
-            // 済みの設定も、端末の設定画面を開いてオフにできるようにする（戻ってきたら mypage.js が状態を確認し直す）
-            ? `<div class="native-alarm-ok-row">
-                 <span class="native-alarm-ok">済み ✓</span>
-                 <button type="button" class="btn btn-outline btn--sm btn--auto" data-change="${c.key}">設定を変える</button>
-               </div>`
-            : `<button type="button" class="btn btn-accent" data-fix="${c.key}">設定する</button>`}
+          ${action}
         </li>`;
     }).join('');
     listEl.querySelectorAll('[data-fix]').forEach((btn) =>
