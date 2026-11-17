@@ -206,7 +206,9 @@ const NativeAlarm = (() => {
   }
 
   // マイページ：設定の一覧（済み／設定する）を描く
-  async function renderChecks(listEl, nextEl) {
+  // （以前は「次のアラーム：○月○日 ○○:○○」も出していたが、利用者には不要で文が多くなるため出さない。
+  //   開発者が確かめるときは、chrome://inspect のコンソールで NativeAlarm.status() の nextAlarmAt を見る）
+  async function renderChecks(listEl) {
     if (!plugin || !listEl) return;
     const st = await status();
     if (!st) return;
@@ -243,18 +245,12 @@ const NativeAlarm = (() => {
     listEl.querySelectorAll('[data-fix]').forEach((btn) =>
       btn.addEventListener('click', async () => {
         await fix(btn.dataset.fix);
-        renderChecks(listEl, nextEl);
+        renderChecks(listEl);
       })
     );
     listEl.querySelectorAll('[data-change]').forEach((btn) =>
       btn.addEventListener('click', () => openSettings(btn.dataset.change))
     );
-    if (nextEl) {
-      const next = Number(st.nextAlarmAt) || 0;
-      nextEl.textContent = next
-        ? `次のアラーム：${new Date(next).toLocaleString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
-        : '次のアラーム：予定はありません（「お薬」でお薬と服薬時刻を登録すると、ここに表示されます）';
-    }
   }
 
   function medLabel(schedule) {

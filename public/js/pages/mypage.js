@@ -14,7 +14,13 @@ const nameInput = document.getElementById('p-name');
 const featuresForm = document.getElementById('features-form');
 const beWatchedInput = document.getElementById('f-be-watched');
 const watchInput = document.getElementById('f-watch');
-const featuresSummary = document.getElementById('f-summary');
+
+// ネイティブ版：「ご家族の飲み忘れのお知らせ（アプリでは受け取れない）」の欄は、「家族を見守る」を使う人にだけ出す
+// （見守られる側・自分のお薬の管理だけの人には関係がないため。保存した設定に合わせる）
+function renderNativeFamilyCard(profile) {
+  document.getElementById('native-family-card').hidden =
+    !NativeAlarm.available() || profile?.can_watch === false;
+}
 
 // プロフィール読み込み
 (async () => {
@@ -25,25 +31,13 @@ const featuresSummary = document.getElementById('f-summary');
     nameInput.value = profile.name || '';
     beWatchedInput.checked = profile.can_be_watched !== false;
     watchInput.checked = profile.can_watch !== false;
-    renderFeaturesSummary();
+    renderNativeFamilyCard(profile);
   } catch (err) {
     handleApiError(err, 'プロフィールの取得に失敗しました。');
   }
 })();
 
 // ---- 使う機能（見守る／見守ってもらう） ----
-function renderFeaturesSummary() {
-  const parts = [];
-  if (beWatchedInput.checked) parts.push('ご家族に見守ってもらう');
-  if (watchInput.checked) parts.push('ご家族を見守る');
-  featuresSummary.textContent = parts.length
-    ? `いまの設定：自分のお薬の記録 ＋ ${parts.join('・')}`
-    : 'いまの設定：自分のお薬の管理だけ（「見守り」のボタンは表示されません）';
-}
-
-beWatchedInput.addEventListener('change', renderFeaturesSummary);
-watchInput.addEventListener('change', renderFeaturesSummary);
-
 featuresForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const before = Session.profile();
@@ -64,6 +58,7 @@ featuresForm.addEventListener('submit', async (e) => {
     const current = Session.get();
     Session.set(current.session, current.user, profile);
     showToast('使う機能を保存しました。', 'success');
+    renderNativeFamilyCard(profile);
     // 下のボタン（「見守り」の表示・非表示）を新しい設定で描き直す
     document.querySelector('.bottom-nav')?.remove();
     renderBottomNav('mypage');
@@ -71,7 +66,6 @@ featuresForm.addEventListener('submit', async (e) => {
     // 見守りの相手がいて外せなかった場合などは、元の設定に戻す
     beWatchedInput.checked = before?.can_be_watched !== false;
     watchInput.checked = before?.can_watch !== false;
-    renderFeaturesSummary();
     handleApiError(err, '使う機能の保存に失敗しました。');
   } finally {
     submitBtn.disabled = false;
@@ -95,8 +89,7 @@ profileForm.addEventListener('submit', async (e) => {
 // アプリでは Web Push を使えないため、「通知設定」の代わりにアラームの設定を表示する
 if (NativeAlarm.available()) {
   const nativeCard = document.getElementById('native-alarm-card');
-  const renderNativeChecks = () =>
-    NativeAlarm.renderChecks(document.getElementById('native-alarm-checks'), document.getElementById('native-alarm-next'));
+  const renderNativeChecks = () => NativeAlarm.renderChecks(document.getElementById('native-alarm-checks'));
   nativeCard.hidden = false;
   document.getElementById('web-push-card').hidden = true;
   renderNativeChecks().then(() => {

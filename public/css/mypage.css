@@ -44,3 +44,9 @@
   font-weight: 700;
   color: var(--color-sage-deep);
 }
+/* 「済み」の設定をやめたいときの説明。上の設定の一覧と線で区切る */
+.native-alarm-note {
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-3);
+}
+.native-alarm-note p { margin: 0; }
