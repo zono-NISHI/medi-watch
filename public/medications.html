@@ -80,11 +80,11 @@
         </div>
         <div class="row">
           <div class="field" style="flex:1">
-            <label for="m-dosage">用量</label>
+            <label for="m-dosage">用量<span class="required-mark">（必須）</span></label>
             <input type="text" id="m-dosage" placeholder="例：1" />
           </div>
           <div class="field unit-picker" id="m-unit-picker" style="flex:1">
-            <label for="m-unit">単位</label>
+            <label for="m-unit">単位<span class="required-mark">（必須）</span></label>
             <!-- 選択肢は js/pages/medications.js の UNIT_OPTIONS から作る -->
             <select id="m-unit" class="unit-select"></select>
             <input type="text" class="unit-other" placeholder="単位を入力" aria-label="単位（その他）" hidden />

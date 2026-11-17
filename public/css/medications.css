@@ -97,3 +97,9 @@
 
 /* 単位のプルダウンで「その他」を選んだときに出る入力欄 */
 .unit-picker .unit-other { margin-top: 0.5rem; }
+
+/* 必ず入力する欄の印（用量・単位） */
+.required-mark { color: var(--color-clay-deep); font-size: var(--fs-xs); margin-left: 0.25rem; }
+
+/* 用量・単位を必須にする前に登録し、まだ空のお薬への案内 */
+.med-amount-missing { margin: 0; color: var(--color-clay-deep); font-weight: 700; }
