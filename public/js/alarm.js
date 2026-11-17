@@ -368,7 +368,7 @@ const MedAlarm = (() => {
     dialog.innerHTML = `
       <div class="alarm-inner">
         <p class="alarm-now">いまの時刻 <span id="alarm-now"></span></p>
-        <p class="alarm-time"><span id="alarm-time"></span><span class="alarm-time-of">の</span></p>
+        <p class="alarm-time"><span id="alarm-time"></span><span class="alarm-time-of">に飲む</span></p>
         <h2 id="alarm-title">お薬の時間です</h2>
         <ul class="alarm-meds" id="alarm-meds"></ul>
         <button type="button" class="alarm-camera-btn" data-alarm="camera">

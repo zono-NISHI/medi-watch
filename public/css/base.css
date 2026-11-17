@@ -488,7 +488,7 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
   font-weight: 700;
   color: var(--color-ink-soft);
 }
-/* 「08:00 の」の「の」 */
+/* 「08:00 に飲む」の「に飲む」（「の」だけでは何の時刻かが伝わりにくいので、動作を書く） */
 .alarm-time-of {
   margin-left: 0.2em;
   font-size: 0.5em;
