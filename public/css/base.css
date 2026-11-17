@@ -479,27 +479,7 @@ body.is-watching .topbar-title { color: var(--color-terracotta-deep); }
   overflow-y: auto;
 }
 
-.alarm-bell {
-  width: 96px; height: 96px;
-  margin: 0 auto;
-  border-radius: 50%;
-  background: var(--color-terracotta);
-  color: var(--color-white);
-  display: flex; align-items: center; justify-content: center;
-  animation: alarm-ring 1.2s ease-in-out infinite;
-}
-.alarm-bell svg { width: 56px; height: 56px; }
-
-@keyframes alarm-ring {
-  0%, 100% { transform: rotate(0); }
-  15% { transform: rotate(-14deg); }
-  30% { transform: rotate(12deg); }
-  45% { transform: rotate(-8deg); }
-  60% { transform: rotate(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .alarm-bell { animation: none; }
-}
+/* いちばん上に置いていた、揺れるベルの印は外した（その分、文字とボタンに高さを使うため） */
 
 /* いまの時刻（小さめ）。下の大きな時刻は「飲む予定の時刻」 */
 .alarm-now {

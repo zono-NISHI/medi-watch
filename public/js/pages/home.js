@@ -19,10 +19,16 @@ const SELF_TARGET = { id: profile.id, isSelf: true, canViewVideo: true };
 
 // 服薬アラーム（js/alarm.js）の「カメラを起動する」から来たとき（?take=スケジュールID）
 const takeFromUrl = new URLSearchParams(location.search).get('take');
-if (takeFromUrl) history.replaceState(null, '', location.pathname);
-// アラームから来て、撮影画面を開くまでのあいだ true。このあいだは画面のアラームを出さない
+// ネイティブ版の端末のアラームの「映像なしで「飲んだ」を記録」から来たとき（?record=スケジュールID）
+// 開いただけで記録される入り口なので、ネイティブ版でだけ受け付ける
+// （ブラウザ版で受け付けると、細工したリンクを開かせるだけで「飲んだ」と記録させられてしまう）
+const recordParam = new URLSearchParams(location.search).get('record');
+const recordFromUrl = window.APP_CONFIG?.IS_NATIVE_APP ? recordParam : null;
+// 読み直したときに、もう一度始めないよう URL から外す（?view= など、ほかの指定があるときは触らない）
+if (takeFromUrl || recordParam) history.replaceState(null, '', location.pathname);
+// アラームから来て、撮影画面を開く（または記録が済む）までのあいだ true。このあいだは画面のアラームを出さない
 // （撮影画面より先に、アラームの画面が一瞬出てしまうため）
-let takePending = !!takeFromUrl;
+let takePending = !!takeFromUrl || !!recordFromUrl;
 
 let mediaStream = null;
 let mediaRecorder = null;
@@ -85,20 +91,23 @@ document.addEventListener('visibilitychange', () => {
 
 ViewTarget.init()
   .then(() => {
-    // アラームから来たときは、自分の予定を表示して撮影を始める
-    if (takeFromUrl) ViewTarget.select(profile.id);
+    // アラームから来たときは、自分の予定を表示して撮影（または記録）を始める
+    if (takeFromUrl || recordFromUrl) ViewTarget.select(profile.id);
     renderViewHeader();
   })
   .catch((err) => console.error(err))
   .finally(async () => {
     await runPoll();
-    if (!takeFromUrl) return;
+    if (!takeFromUrl && !recordFromUrl) return;
     try {
-      await startTakeFromAlarm(takeFromUrl);
+      if (takeFromUrl) await startTakeFromAlarm(takeFromUrl);
+      else await recordWithoutVideoFromAlarm(recordFromUrl);
     } catch (err) {
       console.error(err);
     } finally {
-      takePending = false; // 撮影画面を開けなかったときは、画面のアラームで知らせる
+      takePending = false; // 撮影画面を開けなかった・記録できなかったときは、画面のアラームで知らせる
+      // 記録できたときは止め、できなかったときはすぐ知らせる（次の判定の10秒後まで待たせない）
+      if (recordFromUrl) MedAlarm.refresh();
     }
   });
 
@@ -126,6 +135,27 @@ async function startTakeFromAlarm(scheduleId) {
     medName: item.schedule.medications?.name,
   });
   startCameraBtn.click();
+}
+
+// ネイティブ版の端末のアラームの「映像なしで「飲んだ」を記録」から来たとき。そのお薬を、映像なしで記録する
+// （端末のアラームの画面はログインの情報を持たないので、記録はこの画面が代わりに行う）
+async function recordWithoutVideoFromAlarm(scheduleId) {
+  const item = lastMerged.find(({ schedule }) => schedule.id === scheduleId);
+  if (item?.log?.status && item.log.status !== 'pending') return; // もう記録してある（ほかの端末で記録した など）
+  // 今日の予定に無い・まだ服薬時刻の前、というときは記録しない（押していないお薬を「飲んだ」にしないため）
+  if (!item || !isPastDue(item.schedule.scheduled_time)) {
+    showToast('記録できませんでした。下の一覧の「飲んだ」から記録してください。', 'error');
+    return;
+  }
+  const medName = item.schedule.medications?.name || 'お薬';
+  try {
+    const logId = item.log?.id || (await ensureLogExists(scheduleId));
+    await Api.takeLog(logId, {});
+    showToast(`「${medName}」の服薬を記録しました。`, 'success', 5000);
+    await loadTodaySchedules();
+  } catch (err) {
+    handleApiError(err, '記録に失敗しました。');
+  }
 }
 
 // 切り替えボタン・見出し・見守り中の帯を、いま表示している人に合わせる
