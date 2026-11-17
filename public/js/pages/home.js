@@ -291,8 +291,8 @@ function renderSchedules(merged, target, hasSchedules) {
           ? `<button class="btn btn-outline btn--sm" data-action="view-video" data-log-id="${log.id}">映像を見る</button>`
           : '';
 
-      // 「どのくらい」（用量・単位）と「いつ」（食前・食後など）。登録していない項目は出さない
-      const doseText = [`${med.dosage ?? ''} ${med.unit ?? ''}`.trim(), mealTimingLabel(schedule.meal_timing)]
+      // 「どのくらい」（用量・単位）と「いつ」（食前・食後など）。登録していない項目と「指定なし」は出さない
+      const doseText = [`${med.dosage ?? ''} ${med.unit ?? ''}`.trim(), mealTimingNote(schedule.meal_timing)]
         .filter(Boolean)
         .join(' ・ ');
 
