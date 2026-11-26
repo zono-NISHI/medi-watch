@@ -23,6 +23,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- 確認メールのボタンから開いたブラウザの画面の「アプリで確認を完了する」
+                 （mediwatch://verify-email?token_hash=…）で、アプリのメール確認画面を開く。MainActivity を参照 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mediwatch" android:host="verify-email" />
+            </intent-filter>
+
         </activity>
 
         <!-- 服薬アラームの全画面（ロック中でも表示する。アプリ本体とは別の画面として開く） -->

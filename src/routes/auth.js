@@ -234,7 +234,10 @@ const SIGNUP_USAGES = {
 // ----------------------------------------------------------
 // POST /api/auth/signup
 // 新規ユーザー登録
-// body: { email, password, name, usage: 'watched' | 'watcher' | 'self' }
+// body: { email, password, name, usage: 'watched' | 'watcher' | 'self', client?: 'android' | 'web' }
+//  - client: どこから登録したか。user_metadata の signup_client に入れ、確認メールの
+//    ボタンのリンクに付ける（アプリから登録した人を、ブラウザの確認画面からアプリへ戻すため）。
+//    決まった値だけを入れる（利用者の自由入力をメールに差し込まないため）
 // ----------------------------------------------------------
 router.post(
   '/signup',
@@ -244,6 +247,7 @@ router.post(
     const name = String(req.body.name ?? '').trim();
     const password = String(req.body.password ?? '');
     const usage = SIGNUP_USAGES[String(req.body.usage ?? '')];
+    const signupClient = req.body.client === 'android' ? 'android' : 'web';
 
     // 検証エラーは field を返し、フロント側で該当欄に赤字を出せるようにする
     const invalid = (field, message) =>
@@ -264,7 +268,7 @@ router.post(
         email,
         password,
         options: {
-          data: { name, ...usage },
+          data: { name, ...usage, signup_client: signupClient },
         },
       }));
     } catch (e) {
