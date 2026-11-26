@@ -261,6 +261,8 @@
           email: (fd.get('email') ?? '').trim(),
           password: fd.get('password') ?? '',
           usage: fd.get('usage') ?? '',
+          // アプリ（ネイティブ版）から登録したかどうか。確認メールのボタンから、アプリへ戻れるようにするため
+          client: window.APP_CONFIG?.IS_NATIVE_APP ? 'android' : 'web',
         };
 
         // ---- 送信前の検証 ----

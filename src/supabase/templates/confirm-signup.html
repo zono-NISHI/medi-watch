@@ -8,6 +8,9 @@
     メールのセキュリティ機能に先読みされても使用済みにならない
   ・{{ .Data.name }} など、登録時にユーザーが自由入力した値は差し込まない
     （他人のアドレスで登録され、名前欄に偽の案内文を入れられるのを防ぐ）
+  ・ボタンのリンクの client は、サーバーが決まった値（android / web）だけを入れる .Data.signup_client。
+    アプリから登録した人がスマートフォンのブラウザで開くと、確認画面が「アプリで確認を完了する」を出す。
+    この項目が無い古い登録の人には付けない（with で囲む）
   ・「1時間」は Email OTP Expiration（既定 3600 秒）に合わせた表記。設定を変えたらここも直す
 -->
 <div style="margin:0;padding:24px 16px;background:#fbf7f0;font-family:'Hiragino Sans','Noto Sans JP','Meiryo',sans-serif;color:#33312e;">
@@ -23,7 +26,7 @@
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin:0 0 28px;">
       <tr>
         <td align="center" style="border-radius:12px;background:#d97d54;">
-          <a href="{{ .SiteURL }}/verify-email.html?token_hash={{ .TokenHash }}"
+          <a href="{{ .SiteURL }}/verify-email.html?token_hash={{ .TokenHash }}{{ with .Data.signup_client }}&amp;client={{ . }}{{ end }}"
              style="display:block;padding:18px 12px;font-size:20px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px;">
             確認を完了する
           </a>

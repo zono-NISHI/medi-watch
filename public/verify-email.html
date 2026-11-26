@@ -28,10 +28,23 @@
         <p class="form-notice__text" id="form-success-text"></p>
       </div>
 
+      <!-- ===== アプリで登録した人が、スマートフォン（Android）のブラウザでメールのボタンから開いた場合 ===== -->
+      <section id="app-mode" hidden>
+        <h1 class="auth-title">メールアドレスの確認</h1>
+        <p class="text-muted">下のボタンを押すと、アプリの画面に戻って、確認が完了します。</p>
+        <a class="btn btn-accent verify-link-btn" id="app-open-btn" href="#">アプリで確認を完了する</a>
+        <p class="auth-switch">
+          アプリが開かないときは <a href="#" id="app-skip-link">この画面で確認する</a>
+        </p>
+      </section>
+
       <!-- ===== メールのボタンから開いた場合 ===== -->
       <section id="link-mode" hidden>
         <h1 class="auth-title">メールアドレスの確認</h1>
-        <p class="text-muted">下のボタンを押すと、確認が完了します。</p>
+        <p class="text-muted" id="link-lead">下のボタンを押すと、確認が完了します。</p>
+        <p class="text-muted" id="link-app-note" hidden>
+          アプリで登録された方は、ここで確認を済ませたあと、アプリの画面の「ログイン」からログインしてください。
+        </p>
         <button type="button" class="btn btn-accent verify-link-btn" id="link-confirm-btn">確認を完了する</button>
       </section>
 
@@ -175,11 +188,41 @@
       //  ※ 開いただけでは確認しない。メールのセキュリティ機能が
       //     リンクを先読みしても、使用済みにならないようにするため。
       // ========================================================
+      const pageParams = new URLSearchParams(location.search);
+      const isNativeApp = !!window.APP_CONFIG?.IS_NATIVE_APP;
+      // client=android … アプリ（ネイティブ版）で登録した人の確認メール（サーバーの signup を参照）
+      const registeredInApp = pageParams.get('client') === 'android';
+      // from=app-link … ブラウザの「アプリで確認を完了する」から、アプリがこの画面を開いた（MainActivity）
+      const fromAppLink = isNativeApp && pageParams.get('from') === 'app-link';
       const tokenHash = takeTokenHashFromUrl();
 
       if (tokenHash) {
-        document.getElementById('link-mode').hidden = false;
+        const linkMode = document.getElementById('link-mode');
+        const appMode = document.getElementById('app-mode');
         const linkBtn = document.getElementById('link-confirm-btn');
+
+        // アプリで登録した人が、Android のブラウザ（Gmail などから開いた画面）で開いたとき：
+        // アプリへ戻って確認する。intent: のリンクで、アプリの mediwatch://verify-email を開く。
+        // アプリが入っていなければ、ブラウザのこの画面（client なし）で確認を続ける
+        if (registeredInApp && !isNativeApp && /Android/i.test(navigator.userAgent)) {
+          const fallback = `${location.origin}${location.pathname}?token_hash=${encodeURIComponent(tokenHash)}`;
+          document.getElementById('app-open-btn').href =
+            `intent://verify-email?token_hash=${encodeURIComponent(tokenHash)}`
+            + '#Intent;scheme=mediwatch;package=jp.mediwatch.app;'
+            + `S.browser_fallback_url=${encodeURIComponent(fallback)};end`;
+          document.getElementById('app-skip-link').addEventListener('click', (e) => {
+            e.preventDefault();
+            appMode.hidden = true;
+            linkMode.hidden = false;
+          });
+          appMode.hidden = false;
+        } else {
+          // パソコンや iPhone で開いたときは、ここで確認してから、アプリでログインしてもらう
+          if (registeredInApp && !isNativeApp) {
+            document.getElementById('link-app-note').hidden = false;
+          }
+          linkMode.hidden = false;
+        }
 
         linkBtn.addEventListener('click', async () => {
           hideMessages();
@@ -206,6 +249,10 @@
             linkBtn.textContent = '確認を完了する';
           }
         });
+
+        // ブラウザの画面で「アプリで確認を完了する」を押して開いたときは、もう一度押させずに確認する
+        // （押す操作はブラウザの画面で済んでいる。開いただけでは確認しないのは、メールの先読み対策のため）
+        if (fromAppLink) linkBtn.click();
         return;
       }
 

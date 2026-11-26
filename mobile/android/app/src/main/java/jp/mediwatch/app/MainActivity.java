@@ -14,6 +14,8 @@ import jp.mediwatch.app.alarm.MediAlarmPlugin;
  * （home.html?take=スケジュールID。Web 版のアラームと同じ入り口）。
  * アラームの「飲みました（映像なしで記録する）」から開かれたときは、ホームでそのお薬の映像なしの記録をする
  * （home.html?record=スケジュールID）。撮影・記録はお薬 1 つずつで、残りのお薬はアプリの中のアラームが続けて知らせる。
+ * 確認メールのボタンから開いたブラウザの画面の「アプリで確認を完了する」から開かれたときは、
+ * アプリのメール確認画面で確認を済ませる（openVerifyEmailIfRequested）。
  */
 public class MainActivity extends BridgeActivity {
 
@@ -62,8 +64,39 @@ public class MainActivity extends BridgeActivity {
         openFromAlarmIfRequested(intent);
     }
 
+    /** 確認メールのボタンの token_hash として受け付ける形（サーバーの TOKEN_HASH_PATTERN と同じ） */
+    private static final java.util.regex.Pattern TOKEN_HASH_PATTERN =
+            java.util.regex.Pattern.compile("^[A-Za-z0-9_-]{16,256}$");
+
+    /**
+     * 確認メールのボタンから開いたブラウザの画面で「アプリで確認を完了する」を押したとき
+     * （mediwatch://verify-email?token_hash=…）。アプリのメール確認画面を、そのボタンの情報つきで開き直す
+     * （verify-email.html?token_hash=…&from=app-link。画面がそのまま確認を済ませ、ホームへ進む）。
+     * 「メールをご確認ください」の画面のまま待っていたアプリが、そのまま先へ進めるようにするため。
+     *
+     * @return メール確認の頼みだったら true
+     */
+    private boolean openVerifyEmailIfRequested(Intent intent) {
+        Uri data = intent.getData();
+        if (data == null || !"mediwatch".equals(data.getScheme()) || !"verify-email".equals(data.getHost())) {
+            return false;
+        }
+        // 画面を回転したとき・履歴から開き直したときに、もう一度開かないようにする
+        intent.setData(null);
+
+        String tokenHash = data.getQueryParameter("token_hash");
+        String page = (tokenHash != null && TOKEN_HASH_PATTERN.matcher(tokenHash).matches())
+                ? "/verify-email.html?token_hash=" + Uri.encode(tokenHash) + "&from=app-link"
+                : "/verify-email.html"; // 形が正しくなければ、確認コードを入力する画面を出す
+
+        String url = getBridge().getLocalUrl() + page;
+        getBridge().getWebView().post(() -> getBridge().getWebView().loadUrl(url));
+        return true;
+    }
+
     private void openFromAlarmIfRequested(Intent intent) {
         if (intent == null || getBridge() == null) return;
+        if (openVerifyEmailIfRequested(intent)) return;
         String takeId = intent.getStringExtra(AlarmRinger.EXTRA_TAKE);
         String recordId = intent.getStringExtra(AlarmRinger.EXTRA_RECORD);
         long recordAt = intent.getLongExtra(AlarmRinger.EXTRA_RECORD_AT, 0);
