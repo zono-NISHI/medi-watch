@@ -37,7 +37,9 @@ import org.json.JSONObject;
  * - announce({ text })              … 画面のアラームの文を 1 回読み上げる（端末のアラームが鳴っているあいだは読み上げない）。
  *                                     音量ボタンで「アラーム」の音量を変えられるようにする
  * - stopAnnounce()                  … その読み上げを止め、音量ボタンをいつもの音量に戻す
- * - clear()                         … ログアウト時に、予約と保存した予定をすべて消す
+ * - clear()                         … ログアウト時に、予約・保存した予定・アラーム用の鍵をすべて消す
+ * - setAccount({ key, userId, apiBase }) … ログイン中の人のアラーム用の鍵を渡す（アカウントの削除に気づくため。AlarmAccount）
+ * - getAccount()                    … 端末のアラームの予定が誰のものか（{ userId }）
  * - getStatus()                     … アラームに必要な許可がそろっているか。
  *                                     changeable には、利用者が端末の設定画面で変えられる許可かどうかを入れる
  * - requestNotificationPermission() … 通知の許可を求める（Android 13 以降）
@@ -126,14 +128,33 @@ public class MediAlarmPlugin extends Plugin {
 
     @PluginMethod
     public void clear(PluginCall call) {
-        Context context = getContext();
-        AlarmAnnouncer.stop();
         setVolumeKeys(AudioManager.USE_DEFAULT_STREAM_TYPE);
-        AlarmRinger.dismiss(context);
-        new AlarmStore(context).clearAll();
-        AlarmScheduler.reschedule(context); // 予定が空なので、予約が取り消される
-        AlarmRinger.updateSnoozeNotice(context); // 「あとで」の通知も消す
+        // 止めて、予約・保存した予定・アラーム用の鍵をすべて消す（アカウントが削除されたときと同じ後始末）
+        AlarmAccount.forget(getContext());
         call.resolve();
+    }
+
+    /**
+     * ログイン中の人の、アラーム用の鍵を受け取る（{ key, userId, apiBase }）。
+     * 端末のアラームが、鳴らす前などに「このアカウントはまだあるか」をサーバーに確かめるのに使う（AlarmAccount）
+     */
+    @PluginMethod
+    public void setAccount(PluginCall call) {
+        AlarmAccount.save(getContext(), call.getString("key"), call.getString("userId"), call.getString("apiBase"));
+        call.resolve(account());
+    }
+
+    /** 端末のアラームの予定が、誰のアカウントのものか（{ userId }。分からなければ userId は無い） */
+    @PluginMethod
+    public void getAccount(PluginCall call) {
+        call.resolve(account());
+    }
+
+    private JSObject account() {
+        JSObject r = new JSObject();
+        String userId = AlarmAccount.userId(getContext());
+        if (userId != null) r.put("userId", userId);
+        return r;
     }
 
     @PluginMethod

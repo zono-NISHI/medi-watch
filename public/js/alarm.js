@@ -203,7 +203,29 @@ const NativeAlarm = (() => {
       console.warn('[alarm] 設定の画面を開けませんでした:', err));
   }
 
-  // ログアウトしたら、この端末で鳴らさないようにする
+  // 端末のアラームに、ログイン中の人のアラーム用の鍵を渡す（ページを開いたときに1回だけ）。
+  // 端末のアラームは、この鍵で、鳴らす前などに「このアカウントはまだあるか」をサーバーに確かめ、
+  // 削除されていたら鳴らさずに予定を消す（mobile/ の AlarmAccount）。
+  // 端末がすでにこの人の鍵を持っていれば、もう一度は受け取らない
+  let accountLinked = false;
+  async function linkAccount() {
+    if (!plugin || accountLinked) return;
+    const userId = Session.user()?.id;
+    if (!userId) return;
+    try {
+      const current = await plugin.getAccount();
+      if (current?.userId !== userId) {
+        const { key, user_id: keyUserId } = await Api.issueAlarmKey();
+        await plugin.setAccount({ key, userId: keyUserId, apiBase: window.APP_CONFIG.API_BASE_URL });
+      }
+      accountLinked = true;
+    } catch (err) {
+      // 通信できないときは、次にページを開いたときにもう一度試す（受け取れなくても、アラームはこれまでどおり鳴る）
+      console.warn('[alarm] 端末のアラームにアカウントを伝えられませんでした:', err);
+    }
+  }
+
+  // ログアウトしたら、この端末で鳴らさないようにする（アラーム用の鍵も消す）
   async function clear() {
     if (!plugin) return;
     try {
@@ -289,7 +311,7 @@ const NativeAlarm = (() => {
 
   return {
     available, sync, snooze, setAppAlarm, isSnoozed, announce, stopAnnounce, ringsNatively,
-    status, missing, fix, openSettings, clear, renderSetupNotice, renderChecks,
+    status, missing, fix, openSettings, linkAccount, clear, renderSetupNotice, renderChecks,
   };
 })();
 
@@ -371,7 +393,9 @@ const MedAlarm = (() => {
           schedules = s || [];
           logs = l || [];
           fetchedAt = Date.now();
-          // ネイティブ版：アプリを閉じていても鳴らせるよう、端末のアラームを予約し直す
+          // ネイティブ版：アプリを閉じていても鳴らせるよう、端末のアラームを予約し直す。
+          // 予定を渡す前に、誰の予定かを端末に伝えておく（アカウントが削除されたら、端末が気づいて止めるため）
+          await NativeAlarm.linkAccount();
           await NativeAlarm.sync(schedules, logs, localDateStr(new Date()));
           synced = true;
         }

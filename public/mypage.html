@@ -77,6 +77,25 @@
     </section>
 
     <button class="btn btn-danger-outline" id="logout-btn" style="margin-top: var(--space-4);">ログアウト</button>
+
+    <!-- アカウントの削除。うっかり押さないよう、ふだんは閉じておき、開いてからパスワードを入れて削除する -->
+    <details class="card delete-account" id="delete-account-card">
+      <summary class="delete-account-summary">アカウントを削除する</summary>
+      <form id="delete-account-form" class="stack" novalidate>
+        <p class="text-sm">アカウントを削除すると、<strong>元に戻すことはできません</strong>。次のものがすべて消えます。</p>
+        <ul class="text-sm delete-account-list">
+          <li>登録したお薬と、お薬の時間</li>
+          <li>服薬の記録と、撮影した映像</li>
+          <li>ご家族との見守りのつながり（見守っている・見守られている、どちらも）</li>
+          <li>このアカウントの通知とアラーム（ほかのスマホに入れたアプリのアラームも止まります）</li>
+        </ul>
+        <div class="field">
+          <label for="delete-password">確認のため、パスワードを入力してください</label>
+          <input type="password" id="delete-password" autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn btn-danger-outline" id="delete-account-btn">アカウントを削除する</button>
+      </form>
+    </details>
   </main>
 
   <script src="js/config.js"></script>
