@@ -38,6 +38,12 @@
         </p>
       </section>
 
+      <!-- ===== 上の「アプリで確認を完了する」でアプリが開いたあと（この画面を閉じられなかったときに見える） ===== -->
+      <section id="app-done" hidden>
+        <h1 class="auth-title">アプリの画面で確認しています</h1>
+        <p class="text-muted">この画面は閉じてかまいません。続きは、アプリの画面でご覧ください。</p>
+      </section>
+
       <!-- ===== メールのボタンから開いた場合 ===== -->
       <section id="link-mode" hidden>
         <h1 class="auth-title">メールアドレスの確認</h1>
@@ -214,6 +220,28 @@
             e.preventDefault();
             appMode.hidden = true;
             linkMode.hidden = false;
+          });
+
+          // アプリが前に出て、この画面が裏に回ったら、この画面（Gmail などが開いたブラウザの画面）を閉じる。
+          //  ・押した瞬間に閉じると、アプリが開く前に画面が消えるおそれがあるため、裏に回るのを待つ
+          //  ・ブラウザが閉じるのを許すのは、戻る履歴の無い画面などに限られ、閉じられないこともある。
+          //    そのときに備え、確認のボタンの代わりに「この画面は閉じてかまいません」を出しておく
+          //  ・アプリが入っていない端末では、この画面が別の画面（browser_fallback_url）に移るため、
+          //    閉じる処理は少し待ってから行う（移ったあとは、待っていた処理は動かない）
+          let appOpenRequested = false;
+          const showAppDoneAndClose = () => {
+            appMode.hidden = true;
+            linkMode.hidden = true;
+            document.getElementById('app-done').hidden = false;
+            setTimeout(() => window.close(), 300);
+          };
+          document.getElementById('app-open-btn').addEventListener('click', () => {
+            appOpenRequested = true;
+          });
+          document.addEventListener('visibilitychange', () => {
+            if (!appOpenRequested) return;
+            // 裏に回ったとき・閉じられずに再び表示されたとき（Gmail に戻ったとき）の両方で試す
+            showAppDoneAndClose();
           });
           appMode.hidden = false;
         } else {
