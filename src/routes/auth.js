@@ -11,6 +11,8 @@ const express = require('express');
 const { supabaseAdmin, createAuthClient, createUserClient } = require('../supabase/supabase');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler, sendSupabaseError } = require('../lib/utils');
+const { issueAlarmKey, verifyAlarmKey } = require('../lib/alarmKey');
+const { notifyAccountDeleted } = require('../services/notificationService');
 
 const router = express.Router();
 
@@ -643,6 +645,149 @@ router.patch(
 
     if (error) return sendSupabaseError(res, error, 'プロフィールの更新に失敗しました。');
     res.json({ profile: data });
+  })
+);
+
+// ----------------------------------------------------------
+// 端末のアラーム（ネイティブ版）が、アカウントの削除に気づくための API
+//   アカウントが消されたあとも、端末に保存した予定でアラームが鳴り続けないようにする。
+//   鍵の仕組みは src/lib/alarmKey.js を参照
+// ----------------------------------------------------------
+
+// アカウントが「無い」とはっきり分かったときだけ true。通信の失敗などは false（止めない側に倒す）
+function isUserNotFound(error) {
+  return error?.status === 404 || error?.code === 'user_not_found';
+}
+
+// POST /api/auth/alarm-key
+// ログイン中の人の、端末のアラーム用の鍵を発行する（アプリの画面が受け取り、端末に保存する）
+router.post(
+  '/alarm-key',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const key = issueAlarmKey(req.user.id);
+    if (!key) return sendUpstreamError(res);
+    res.json({ key, user_id: req.user.id });
+  })
+);
+
+// POST /api/auth/alarm-status
+// body: { key }
+// 端末のアラーム（Java）が、鳴らす前とアプリを開いたときに呼ぶ。ログインのトークンは使わない。
+// 応答: 200 { status: 'active' } … アカウントがある（ログインが切れていても active）
+//       410 { code: 'ACCOUNT_DELETED' } … アカウントが削除された（端末は予定を消し、鳴らさない）
+//       401 { code: 'ALARM_KEY_INVALID' } … 鍵が正しくない（端末は止めずに鳴らす。サーバーの鍵を変えた場合など）
+//       503 … いま確かめられない（端末は止めずに鳴らす）
+router.post(
+  '/alarm-status',
+  asyncHandler(async (req, res) => {
+    const userId = verifyAlarmKey(req.body?.key);
+    if (!userId) {
+      return res.status(401).json({ code: 'ALARM_KEY_INVALID', error: 'アラームの鍵が正しくありません。' });
+    }
+    let result;
+    try {
+      result = await supabaseAdmin.auth.admin.getUserById(userId);
+    } catch (e) {
+      console.error('[alarm-status] 予期しない例外:', e);
+      return sendUpstreamError(res);
+    }
+    const { data, error } = result;
+    if (isUserNotFound(error) || (!error && !data?.user)) {
+      return res.status(410).json({ code: 'ACCOUNT_DELETED', error: 'このアカウントは削除されています。' });
+    }
+    if (error) {
+      logAuthError('alarm-status', error);
+      return sendUpstreamError(res);
+    }
+    res.json({ status: 'active' });
+  })
+);
+
+// 本人の服薬映像（Storage の medication-videos/<ユーザーID>/ の中）をすべて消す。
+// Storage にその人のファイルが残っていると、アカウントを削除できないため、先に消す
+async function removeUserVideos(userId) {
+  const bucket = supabaseAdmin.storage.from('medication-videos');
+  // 1回に取得できる件数に上限があるので、無くなるまで繰り返す（念のため回数に上限を設ける）
+  for (let round = 0; round < 100; round += 1) {
+    const { data: files, error } = await bucket.list(userId, { limit: 1000 });
+    if (error) throw error;
+    if (!files || files.length === 0) return;
+    const { error: removeError } = await bucket.remove(files.map((f) => `${userId}/${f.name}`));
+    if (removeError) throw removeError;
+  }
+  throw new Error('映像が多すぎて、消しきれませんでした。');
+}
+
+// ----------------------------------------------------------
+// POST /api/auth/delete-account
+// body: { password }
+// アカウントを削除する。本人確認のため、パスワードをもう一度入力してもらう。
+//   1. その人のネイティブ版の端末（FCM の宛先）を読み出す（アカウントと一緒に消えるため、先に読む）
+//   2. 服薬映像を消す
+//   3. アカウントを消す（お薬・予定・記録・見守り・通知の宛先は、DB の CASCADE で一緒に消える）
+//   4. 1. の端末へ「アラームを消して」と知らせる（端末は、知らせが届かなくても、鳴らす前に削除に気づく）
+// パスワードが違うときは 403 を返す（401 にすると、画面がログインの期限切れと見なしてログイン画面へ移るため）
+// ----------------------------------------------------------
+router.post(
+  '/delete-account',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const password = String(req.body.password ?? '');
+    if (!password) {
+      return res.status(400).json({ code: 'VALIDATION_ERROR', field: 'password', error: 'パスワードを入力してください。' });
+    }
+
+    // 本人確認（このリクエスト専用のクライアントで確かめる。supabaseAdmin では呼ばない）
+    let signIn;
+    try {
+      signIn = await createAuthClient().auth.signInWithPassword({ email: req.user.email, password });
+    } catch (e) {
+      console.error('[delete-account] 予期しない例外:', e);
+      return sendUpstreamError(res);
+    }
+    if (signIn.error) {
+      const status = safeStatus(signIn.error.status, 0);
+      if (status === 429) {
+        return res.status(429).json({
+          code: 'RATE_LIMITED',
+          error: '短い時間に何度もお試しいただいたため、しばらく受け付けられません。5分ほどおいてから、もう一度お試しください。',
+        });
+      }
+      if (status === 0 || status >= 500) return sendUpstreamError(res);
+      return res.status(403).json({ code: 'WRONG_PASSWORD', field: 'password', error: 'パスワードが正しくありません。' });
+    }
+
+    const userId = req.user.id;
+
+    // 1. 端末の宛先（読めなくても削除は続ける。端末は鳴らす前の確認で削除に気づく）
+    const { data: subs, error: subsError } = await supabaseAdmin
+      .from('push_subscriptions')
+      .select('endpoint')
+      .eq('user_id', userId)
+      .eq('kind', 'fcm');
+    if (subsError) console.warn('[delete-account] 端末の宛先を読めませんでした:', subsError.message);
+
+    // 2. 服薬映像
+    try {
+      await removeUserVideos(userId);
+    } catch (e) {
+      console.error('[delete-account] 映像を消せませんでした:', e);
+      return sendUpstreamError(res, 'ただいまアカウントを削除できませんでした。少し時間をおいて、もう一度お試しください。');
+    }
+
+    // 3. アカウント
+    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (deleteError && !isUserNotFound(deleteError)) {
+      logAuthError('delete-account', deleteError);
+      return sendUpstreamError(res, 'ただいまアカウントを削除できませんでした。少し時間をおいて、もう一度お試しください。');
+    }
+
+    // 4. 端末へ知らせる（結果を待たずに返す）
+    notifyAccountDeleted((subs || []).map((s) => s.endpoint), userId)
+      .catch((e) => console.error('[delete-account] 端末への知らせに失敗:', e));
+
+    res.json({ message: 'アカウントを削除しました。' });
   })
 );
 

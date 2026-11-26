@@ -12,6 +12,31 @@
   background: rgba(181, 84, 74, 0.06);
 }
 
+/* ---- アカウントの削除（ふだんは閉じておく） ---- */
+.delete-account { margin-top: var(--space-4); }
+.delete-account-summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--color-clay);
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  list-style: none;
+}
+.delete-account-summary::-webkit-details-marker { display: none; }
+.delete-account-summary::before {
+  content: '＋';
+  display: inline-block;
+  width: 1.6em;
+}
+.delete-account[open] > .delete-account-summary::before { content: '－'; }
+.delete-account[open] > .delete-account-summary { margin-bottom: var(--space-2); }
+.delete-account-list { margin: 0; padding-left: 1.4em; }
+#delete-account-btn {
+  color: var(--color-clay);
+  border-color: var(--color-clay);
+}
+
 /* ---- ネイティブ版（Android アプリ）：お薬の時間のアラームの設定 ---- */
 .native-alarm-checks {
   list-style: none;

@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
+import jp.mediwatch.app.alarm.AlarmAccount;
 import jp.mediwatch.app.alarm.AlarmRinger;
 import jp.mediwatch.app.alarm.MediAlarmPlugin;
 
@@ -38,6 +39,8 @@ public class MainActivity extends BridgeActivity {
     public void onStart() {
         super.onStart();
         AlarmRinger.onAppShown(this);
+        // アカウントが削除されていたら、端末のアラームを止めて予定を消す（裏で確かめる。AlarmAccount）
+        AlarmAccount.checkOnAppShown(this);
     }
 
     /**

@@ -15,7 +15,10 @@ public class AlarmReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String action = intent != null ? intent.getAction() : null;
         if (AlarmScheduler.ACTION_FIRE.equals(action)) {
-            AlarmScheduler.onAlarmFired(context);
+            // 鳴らす前に、アカウントが削除されていないかをサーバーに確かめる（AlarmAccount）。
+            // 答えを待つあいだ、この知らせの処理を終わらせないよう goAsync() を使う
+            Context app = context.getApplicationContext();
+            AlarmAccount.ringUnlessDeleted(app, () -> AlarmScheduler.onAlarmFired(app), goAsync());
         } else if (AlarmRinger.ACTION_SNOOZE.equals(action)) {
             AlarmRinger.snooze(context);
         } else if (AlarmRinger.ACTION_DISMISSED.equals(action)) {

@@ -236,6 +236,10 @@ const Api = {
   logout: () => apiRequest('/auth/logout', { method: 'POST' }),
   me: () => apiRequest('/auth/me'),
   updateMe: (payload) => apiRequest('/auth/me', { method: 'PATCH', body: payload }),
+  // アカウントの削除（本人確認のため、パスワードをもう一度入力してもらう）
+  deleteAccount: (password) => apiRequest('/auth/delete-account', { method: 'POST', body: { password } }),
+  // ネイティブ版：端末のアラームが、アカウントの削除に気づくための鍵（alarm.js の NativeAlarm.linkAccount）
+  issueAlarmKey: () => apiRequest('/auth/alarm-key', { method: 'POST' }),
 
   // ---- ケアグループ（見守り） ----
   // 見守られる側：自分の招待コード

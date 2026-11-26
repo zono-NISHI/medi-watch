@@ -295,9 +295,36 @@ async function notifyCareGroup({ patientId, logId, type }) {
   return { sent: sentCount, targeted: recipients.length };
 }
 
+// アカウントを削除したとき、その人のネイティブ版の端末へ「端末のアラームを消して」と知らせる。
+// 画面には何も出さないデータメッセージ（notification を付けない）で送り、端末の
+// AccountMessagingService（Java）が受け取って、保存した予定とアラームの予約を消す。
+// 宛先（push_subscriptions）はアカウントの削除と一緒に消える（CASCADE）ため、呼ぶ側が削除の前に読み出しておく。
+// 電源が切れている端末にも、電源を入れたあとで届くよう、FCM に取っておける最長の期間（28日）を指定する。
+// 届かないこともあるので、これだけには頼らない（端末は鳴らす前にも、サーバーへアカウントがあるかを確かめる）。
+async function notifyAccountDeleted(fcmTokens, userId) {
+  if (!fcmConfigured || !fcmTokens || fcmTokens.length === 0) return 0;
+  let sent = 0;
+  await Promise.all(
+    fcmTokens.map(async (token) => {
+      try {
+        await fcmMessaging.send({
+          token,
+          data: { type: 'account_deleted', userId: String(userId) },
+          android: { priority: 'high', ttl: 28 * 24 * 60 * 60 * 1000 },
+        });
+        sent += 1;
+      } catch (err) {
+        console.warn('[notificationService] アカウント削除の知らせを送れませんでした:', err.code || err.message);
+      }
+    })
+  );
+  return sent;
+}
+
 module.exports = {
   notifyCareGroup,
   notifyWatchRemoved,
+  notifyAccountDeleted,
   sendToSubscription,
   vapidConfigured,
   fcmConfigured,

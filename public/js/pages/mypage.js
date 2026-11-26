@@ -174,3 +174,41 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   Session.clear();
   location.href = 'login.html';
 });
+
+// ---- アカウントの削除 ----
+// サーバーが、お薬・記録・映像・見守りのつながりを消し、ほかのスマホのアプリにも「アラームを止めて」と知らせる。
+// 知らせが届かないスマホも、アラームを鳴らす前にサーバーへ確かめて、鳴らさずに予定を消す（mobile/ の AlarmAccount）
+const deleteForm = document.getElementById('delete-account-form');
+const deletePassword = document.getElementById('delete-password');
+const deleteBtn = document.getElementById('delete-account-btn');
+
+deleteForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!deletePassword.value) {
+    showToast('確認のため、パスワードを入力してください。', 'error');
+    deletePassword.focus();
+    return;
+  }
+  if (!confirm('アカウントを削除します。元に戻すことはできません。\n本当に削除しますか？')) return;
+
+  deleteBtn.disabled = true;
+  deleteBtn.textContent = '削除しています…';
+  try {
+    await Api.deleteAccount(deletePassword.value);
+  } catch (err) {
+    deleteBtn.disabled = false;
+    deleteBtn.textContent = 'アカウントを削除する';
+    if (err.code === 'WRONG_PASSWORD') {
+      deletePassword.value = '';
+      deletePassword.focus();
+    }
+    handleApiError(err, 'アカウントを削除できませんでした。');
+    return;
+  }
+
+  // この端末のアラームを止めて、予定を消す（通知の宛先の登録は、サーバーでアカウントと一緒に消えている）
+  await NativeAlarm.clear();
+  Session.clear();
+  alert('アカウントを削除しました。ご利用ありがとうございました。');
+  location.href = 'login.html';
+});
